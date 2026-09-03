@@ -3,37 +3,55 @@ import { usePlaygroundStore } from '../../store/playgroundStore.js';
 
 // ── JSON tree node ────────────────────────────────────────────────────────────
 
-function JsonNode({ value, depth = 0, keyName = null }) {
+/**
+ * JsonNode — renders one node of the JSON schema tree.
+ *
+ * `staggerIndex` controls the `animation-delay` so that sibling rows
+ * animate in sequentially (staggered fade-and-slide with indigo glow).
+ * The delay is capped at 600 ms to keep large schemas snappy.
+ */
+function JsonNode({ value, depth = 0, keyName = null, staggerIndex = 0 }) {
   const [collapsed, setCollapsed] = useState(depth > 2);
   const indent = depth * 14;
   const toggle = (e) => { e.stopPropagation(); setCollapsed((c) => !c); };
 
-  if (value === null) return (
+  /* Delay in ms, capped so deeply nested schemas don't stall forever */
+  const delayMs = Math.min(staggerIndex * 45, 600);
+  const staggerStyle = { animationDelay: `${delayMs}ms` };
+
+  const wrap = (content) => (
+    <div className="animate-tree-node" style={staggerStyle}>
+      {content}
+    </div>
+  );
+
+  if (value === null) return wrap(
     <span className="flex items-center gap-1" style={{ paddingLeft: indent }}>
       {keyName !== null && <><span className="json-key">"{keyName}"</span><span className="text-gray-600">:</span></>}
       <span className="json-null">null</span>
     </span>
   );
-  if (typeof value === 'boolean') return (
+  if (typeof value === 'boolean') return wrap(
     <span className="flex items-center gap-1" style={{ paddingLeft: indent }}>
       {keyName !== null && <><span className="json-key">"{keyName}"</span><span className="text-gray-600">:</span></>}
       <span className="json-bool">{String(value)}</span>
     </span>
   );
-  if (typeof value === 'number') return (
+  if (typeof value === 'number') return wrap(
     <span className="flex items-center gap-1" style={{ paddingLeft: indent }}>
       {keyName !== null && <><span className="json-key">"{keyName}"</span><span className="text-gray-600">:</span></>}
       <span className="json-number">{value}</span>
     </span>
   );
-  if (typeof value === 'string') return (
+  if (typeof value === 'string') return wrap(
     <span className="flex items-center gap-1 break-all" style={{ paddingLeft: indent }}>
       {keyName !== null && <><span className="json-key">"{keyName}"</span><span className="text-gray-600">:</span></>}
       <span className="json-string">"{value}"</span>
     </span>
   );
+
   if (Array.isArray(value)) {
-    return (
+    return wrap(
       <div style={{ paddingLeft: indent }}>
         <button onClick={toggle} className="flex items-center gap-1 text-left hover:opacity-80 focus:outline-none" aria-expanded={!collapsed}>
           {keyName !== null && <><span className="json-key">"{keyName}"</span><span className="text-gray-600">:</span></>}
@@ -43,18 +61,24 @@ function JsonNode({ value, depth = 0, keyName = null }) {
           {collapsed && <span className="text-gray-400">]</span>}
         </button>
         {!collapsed && (
-          <div className="border-l border-gray-800 ml-2 pl-2">
-            {value.map((item, i) => <div key={i} className="py-0.5"><JsonNode value={item} depth={0} keyName={String(i)} /></div>)}
+          <div className="border-l border-indigo-900/40 ml-2 pl-2">
+            {value.map((item, i) => (
+              <div key={i} className="py-0.5">
+                <JsonNode value={item} depth={0} keyName={String(i)} staggerIndex={staggerIndex + i + 1} />
+              </div>
+            ))}
             <span className="text-gray-400">]</span>
           </div>
         )}
       </div>
     );
   }
+
   if (typeof value === 'object') {
     const keys = Object.keys(value);
     const preview = keys.slice(0, 3).join(', ') + (keys.length > 3 ? '…' : '');
-    return (
+    let childIdx = staggerIndex + 1;
+    return wrap(
       <div style={{ paddingLeft: indent }}>
         <button onClick={toggle} className="flex items-center gap-1 text-left hover:opacity-80 focus:outline-none" aria-expanded={!collapsed}>
           {keyName !== null && <><span className="json-key">"{keyName}"</span><span className="text-gray-600">:</span></>}
@@ -64,14 +88,22 @@ function JsonNode({ value, depth = 0, keyName = null }) {
           {collapsed && <span className="text-gray-400">{'}'}</span>}
         </button>
         {!collapsed && (
-          <div className="border-l border-gray-800 ml-2 pl-2">
-            {keys.map((k) => <div key={k} className="py-0.5"><JsonNode value={value[k]} depth={0} keyName={k} /></div>)}
+          <div className="border-l border-indigo-900/40 ml-2 pl-2">
+            {keys.map((k, ki) => {
+              const idx = childIdx + ki;
+              return (
+                <div key={k} className="py-0.5">
+                  <JsonNode value={value[k]} depth={0} keyName={k} staggerIndex={idx} />
+                </div>
+              );
+            })}
             <span className="text-gray-400">{'}'}</span>
           </div>
         )}
       </div>
     );
   }
+
   return null;
 }
 
@@ -390,7 +422,7 @@ function SchemaGraph({ schema }) {
 
 // ── SchemaEditor ──────────────────────────────────────────────────────────────
 
-const TABS = ['graph', 'tree', 'raw'];
+const TABS = ['graph', 'tree', 'raw', 'docs'];
 
 export default function SchemaEditor() {
   const { generatedSchema, isGenerating } = usePlaygroundStore();
@@ -442,7 +474,7 @@ export default function SchemaEditor() {
                     </svg>
                     Graph
                   </span>
-                ) : mode === 'tree' ? 'Tree' : 'Raw'}
+                ) : mode === 'tree' ? 'Tree' : mode === 'raw' ? 'Raw' : '📜 Docs'}
               </button>
             ))}
           </div>
@@ -489,13 +521,15 @@ export default function SchemaEditor() {
         <SchemaGraph schema={generatedSchema} />
       ) : viewMode === 'tree' ? (
         <div
-          className="max-h-80 overflow-y-auto rounded-lg border border-gray-800
-                     bg-gray-950/60 px-3 py-3 font-mono text-xs leading-6 animate-fade-in"
+          key={JSON.stringify(generatedSchema).slice(0, 64)}
+          className="ambient-grid max-h-80 overflow-y-auto rounded-lg border
+                     border-indigo-900/20 bg-gray-950/70 px-3 py-3
+                     font-mono text-xs leading-6 animate-fade-in"
           role="region" aria-label="JSON schema tree"
         >
-          <JsonNode value={generatedSchema} depth={0} />
+          <JsonNode value={generatedSchema} depth={0} staggerIndex={0} />
         </div>
-      ) : (
+      ) : viewMode === 'raw' ? (
         <textarea
           className="input max-h-80 min-h-[160px] resize-y font-mono text-xs
                      text-green-300 leading-relaxed animate-fade-in"
@@ -504,7 +538,42 @@ export default function SchemaEditor() {
           aria-label="Raw JSON schema"
           spellCheck={false}
         />
-      )}
+      ) : viewMode === 'docs' ? (
+        /* ── 📜 API Docs — static table of schema fields ── */
+        <div className="max-h-80 overflow-y-auto rounded-lg border border-gray-800
+                        bg-gray-950/60 animate-fade-in">
+          <table className="w-full text-left text-xs" aria-label="API schema documentation">
+            <thead>
+              <tr className="border-b border-gray-800 bg-gray-900/80">
+                <th className="px-3 py-2 font-semibold text-gray-500 uppercase tracking-widest w-1/4">Resource</th>
+                <th className="px-3 py-2 font-semibold text-gray-500 uppercase tracking-widest w-1/4">Field</th>
+                <th className="px-3 py-2 font-semibold text-gray-500 uppercase tracking-widest w-1/6">Type</th>
+                <th className="px-3 py-2 font-semibold text-gray-500 uppercase tracking-widest">Description</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-800/50">
+              {Object.entries(generatedSchema).flatMap(([resource, def]) =>
+                Object.entries(def?.properties ?? {}).map(([field, spec]) => (
+                  <tr key={`${resource}.${field}`}
+                      className="transition-colors hover:bg-gray-800/30">
+                    <td className="px-3 py-2 font-mono text-sky-400/80">{resource}</td>
+                    <td className="px-3 py-2 font-mono text-gray-300">{field}</td>
+                    <td className="px-3 py-2">
+                      <span className="rounded-full bg-gray-800 px-2 py-0.5
+                                       font-mono text-amber-300">
+                        {spec?.type ?? '—'}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-gray-600">
+                      {spec?.description ?? spec?.format ?? ''}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -248,6 +248,384 @@ function JsonBodyEditor({ value, onChange }) {
   );
 }
 
+// ── cURL Command Widget ───────────────────────────────────────────────────────
+
+/**
+ * Builds a ready-to-run curl command string from the current runner state.
+ * Resolves the relative /api/... URL to a full localhost URL for copy-paste.
+ * Active customHeaders rows are injected as -H 'Key: Value' flags.
+ */
+function buildCurlCommand({ method, url, body, sessionId, customHeaders = [] }) {
+  const base = window.location.origin;
+  const fullUrl = `${base}${url}`;
+  const parts = ['curl', '-s', '-X', method];
+
+  /* Always-present system headers */
+  parts.push(`-H "Content-Type: application/json"`);
+  if (sessionId) {
+    parts.push(`-H "x-mockflow-session: ${sessionId}"`);
+  }
+
+  /* User-defined custom headers — only rows with both key and value filled */
+  customHeaders.forEach(({ key, value }) => {
+    const k = String(key ?? '').replace(/[\r\n"]/g, '').trim();
+    const v = String(value ?? '').replace(/[\r\n"]/g, '');
+    if (k && v) parts.push(`-H "${k}: ${v}"`);
+  });
+
+  /* Request body for mutating verbs */
+  if (['POST', 'PUT', 'PATCH'].includes(method) && body?.trim()) {
+    const oneLine = body.replace(/\s+/g, ' ').trim();
+    parts.push(`-d '${oneLine}'`);
+  }
+
+  parts.push(`"${fullUrl}"`);
+  return parts.join(' \\\n  ');
+}
+
+function CurlWidget({ method, url, body, sessionId, customHeaders = [], onCopy }) {
+  const [copied, setCopied] = useState(false);
+
+  const curlStr = buildCurlCommand({ method, url, body, sessionId, customHeaders });
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(curlStr).catch(() => {});
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+    if (onCopy) onCopy();
+  };
+
+  return (
+    <div className="flex flex-col gap-1.5 animate-fade-in">
+      {/* Label row */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5">
+          {/* Terminal icon */}
+          <svg className="h-3.5 w-3.5 shrink-0 text-gray-600" fill="none"
+               viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round"
+                  d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5
+                     a2 2 0 00-2 2v12a2 2 0 002 2z" />
+          </svg>
+          <span className="text-xs font-semibold uppercase tracking-widest text-gray-600">
+            cURL
+          </span>
+        </div>
+
+        <button
+          onClick={handleCopy}
+          className={`flex items-center gap-1.5 rounded-md border px-2 py-0.5
+                      text-xs font-medium transition-all duration-150
+                      focus-visible:outline-none focus-visible:ring-2
+                      focus-visible:ring-indigo-500
+                      ${copied
+                        ? 'border-emerald-800/60 bg-emerald-950/40 text-emerald-400'
+                        : 'border-gray-700 bg-gray-800/60 text-gray-500 hover:border-gray-600 hover:text-gray-300'
+                      }`}
+          aria-label="Copy cURL command"
+        >
+          {copied ? (
+            <>
+              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24"
+                   stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+              Copied!
+            </>
+          ) : (
+            <>
+              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24"
+                   stroke="currentColor" strokeWidth={2}>
+                <rect x="9" y="9" width="13" height="13" rx="2" />
+                <path strokeLinecap="round" strokeLinejoin="round"
+                      d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
+              </svg>
+              Copy
+            </>
+          )}
+        </button>
+      </div>
+
+      {/* Terminal block */}
+      <div
+        className="group relative overflow-hidden rounded-xl border
+                   border-indigo-900/25 bg-gray-950/90"
+        style={{
+          backgroundImage:
+            'radial-gradient(circle, rgba(99,102,241,0.04) 1px, transparent 1px)',
+          backgroundSize: '18px 18px',
+        }}
+      >
+        {/* Traffic-light dots */}
+        <div className="flex items-center gap-1.5 border-b border-gray-800/50
+                        bg-gray-900/60 px-3 py-1.5" aria-hidden="true">
+          <span className="h-2 w-2 rounded-full bg-red-500/60" />
+          <span className="h-2 w-2 rounded-full bg-amber-500/60" />
+          <span className="h-2 w-2 rounded-full bg-emerald-500/60" />
+          <span className="ml-2 font-mono text-[10px] text-gray-700">
+            terminal · bash
+          </span>
+        </div>
+
+        {/* Command text */}
+        <pre
+          className="overflow-x-auto whitespace-pre px-4 py-3 font-mono
+                     text-[11px] leading-relaxed text-emerald-300/90"
+          style={{ tabSize: 2 }}
+        >
+          <span className="text-indigo-400/70 select-none">$ </span>
+          {curlStr}
+        </pre>
+      </div>
+    </div>
+  );
+}
+
+// ── HTTP Headers Playground ───────────────────────────────────────────────────
+
+/**
+ * A unique id for each header row — stable across renders.
+ * Using a simple counter avoids the Date.now() + random collision risk.
+ */
+let _headerRowId = 0;
+const newRowId = () => `hdr-${++_headerRowId}`;
+
+/**
+ * Validation helpers.
+ * RFC 7230 §3.2: header field names are tokens — printable US-ASCII,
+ * excluding delimiters.
+ */
+const VALID_HEADER_KEY_RE   = /^[A-Za-z0-9\-_]+$/;
+const RESERVED_HEADER_KEYS  = new Set([
+  'host', 'content-length', 'transfer-encoding', 'connection',
+  'keep-alive', 'upgrade', 'proxy-authenticate', 'proxy-authorization',
+  'te', 'trailers',
+]);
+
+function validateHeaderKey(key) {
+  const k = key.trim();
+  if (!k) return null;                                    // empty → no error shown
+  if (!VALID_HEADER_KEY_RE.test(k))
+    return 'Only A-Z, 0-9, hyphen and underscore allowed';
+  if (RESERVED_HEADER_KEYS.has(k.toLowerCase()))
+    return 'Reserved header — will be ignored by the browser';
+  return null;                                            // valid
+}
+
+function HeaderRow({ row, onChange, onRemove, isLast }) {
+  const keyError = row.key ? validateHeaderKey(row.key) : null;
+
+  return (
+    <div className="group grid grid-cols-[1fr_1fr_28px] items-start gap-2
+                    animate-fade-in">
+      {/* Key input */}
+      <div className="flex flex-col gap-0.5">
+        <input
+          type="text"
+          spellCheck={false}
+          className={`input py-1.5 font-mono text-xs text-gray-200
+                      placeholder-gray-700
+                      ${keyError
+                        ? 'border-amber-700/60 focus:border-amber-600 focus:ring-amber-600/20'
+                        : row.key ? 'border-indigo-700/40 focus:border-indigo-500' : ''
+                      }`}
+          placeholder="X-Custom-Key"
+          value={row.key}
+          onChange={(e) => onChange({ ...row, key: e.target.value })}
+          aria-label="Header key"
+          aria-invalid={!!keyError}
+        />
+        {keyError && (
+          <span className="font-mono text-[10px] text-amber-500 leading-tight">
+            {keyError}
+          </span>
+        )}
+      </div>
+
+      {/* Value input */}
+      <input
+        type="text"
+        spellCheck={false}
+        className="input py-1.5 font-mono text-xs text-gray-200
+                   placeholder-gray-700"
+        placeholder="header-value"
+        value={row.value}
+        onChange={(e) => onChange({ ...row, value: e.target.value })}
+        aria-label="Header value"
+      />
+
+      {/* Remove button */}
+      <button
+        type="button"
+        onClick={onRemove}
+        className="mt-0.5 flex h-7 w-7 items-center justify-center rounded-lg
+                   border border-transparent text-gray-700
+                   transition-all duration-150
+                   hover:border-red-800/50 hover:bg-red-950/40 hover:text-red-400
+                   focus-visible:outline-none focus-visible:ring-2
+                   focus-visible:ring-red-500
+                   opacity-0 group-hover:opacity-100"
+        aria-label="Remove header row"
+        title="Remove"
+      >
+        <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24"
+             stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round"
+                d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
+    </div>
+  );
+}
+
+function HeadersPlayground({ headers, onChange }) {
+  const [open, setOpen] = useState(false);
+
+  const activeCount = headers.filter(h => h.key.trim() && h.value.trim()).length;
+
+  const addRow = () => {
+    // Guard: don't append a new row if the last row is still empty.
+    // This prevents stacking blank rows when the user clicks "Add header"
+    // repeatedly without filling in the previous one.
+    const last = headers[headers.length - 1];
+    if (last && !last.key.trim() && !last.value.trim()) return;
+    onChange([...headers, { id: newRowId(), key: '', value: '' }]);
+  };
+
+  const updateRow = (id, updated) =>
+    onChange(headers.map(h => h.id === id ? updated : h));
+
+  const removeRow = (id) => {
+    const next = headers.filter(h => h.id !== id);
+    onChange(next.length ? next : [{ id: newRowId(), key: '', value: '' }]);
+  };
+
+  return (
+    <div
+      className="overflow-hidden rounded-xl border border-gray-800/70
+                 transition-colors duration-200
+                 hover:border-gray-700/80"
+      style={{
+        background: 'rgba(15,23,42,0.55)',
+        backdropFilter: 'blur(6px)',
+      }}
+    >
+      {/* ── Collapsible header row ─────────────────────────────────────── */}
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className="flex w-full items-center gap-2.5 px-3 py-2.5
+                   focus-visible:outline-none focus-visible:ring-2
+                   focus-visible:ring-inset focus-visible:ring-indigo-500"
+        aria-expanded={open}
+        aria-controls="headers-playground-body"
+      >
+        {/* Icon */}
+        <div className="flex h-5 w-5 shrink-0 items-center justify-center
+                        rounded-md bg-indigo-600/20 ring-1 ring-indigo-600/40">
+          <svg className="h-3 w-3 text-indigo-400" fill="none" viewBox="0 0 24 24"
+               stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round"
+                  d="M4 6h16M4 10h16M4 14h8M4 18h8" />
+          </svg>
+        </div>
+
+        {/* Label */}
+        <span className="text-xs font-semibold text-gray-300">
+          HTTP Headers
+        </span>
+
+        {/* Active count badge */}
+        {activeCount > 0 && (
+          <span
+            className="rounded-full px-1.5 py-0.5 font-mono
+                       text-[10px] font-bold text-indigo-300"
+            style={{
+              background: 'rgba(99,102,241,0.18)',
+              border: '1px solid rgba(99,102,241,0.30)',
+            }}
+          >
+            {activeCount} active
+          </span>
+        )}
+
+        {/* Chevron */}
+        <svg
+          className={`ml-auto h-3.5 w-3.5 shrink-0 text-gray-600
+                      transition-transform duration-200
+                      ${open ? 'rotate-180' : ''}`}
+          fill="none" viewBox="0 0 24 24"
+          stroke="currentColor" strokeWidth={2.5}
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {/* ── Body ──────────────────────────────────────────────────────── */}
+      {open && (
+        <div
+          id="headers-playground-body"
+          className="flex flex-col gap-3 border-t border-gray-800/60 px-3 py-3"
+        >
+          {/* Column labels */}
+          <div className="grid grid-cols-[1fr_1fr_28px] gap-2 px-0.5">
+            <span className="text-[10px] font-semibold uppercase tracking-widest
+                             text-gray-700">
+              Key
+            </span>
+            <span className="text-[10px] font-semibold uppercase tracking-widest
+                             text-gray-700">
+              Value
+            </span>
+            <span />
+          </div>
+
+          {/* Header rows */}
+          <div className="flex flex-col gap-2">
+            {headers.map((row, i) => (
+              <HeaderRow
+                key={row.id}
+                row={row}
+                onChange={(updated) => updateRow(row.id, updated)}
+                onRemove={() => removeRow(row.id)}
+                isLast={i === headers.length - 1}
+              />
+            ))}
+          </div>
+
+          {/* Add row + hint */}
+          <div className="flex items-center justify-between gap-3 pt-0.5">
+            <button
+              type="button"
+              onClick={addRow}
+              className="flex items-center gap-1.5 rounded-lg border
+                         border-dashed border-gray-700 px-3 py-1.5
+                         text-xs font-medium text-gray-600
+                         transition-all duration-150
+                         hover:border-indigo-700/60 hover:bg-indigo-950/20
+                         hover:text-indigo-400
+                         focus-visible:outline-none focus-visible:ring-2
+                         focus-visible:ring-indigo-500"
+              aria-label="Add header row"
+            >
+              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24"
+                   stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round"
+                      d="M12 4v16m8-8H4" />
+              </svg>
+              Add header
+            </button>
+
+            <span className="text-[10px] text-gray-700">
+              x-custom-* and x-mock-* headers are echoed in the response
+            </span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function HighlightedJson({ data }) {
   if (data === null || data === undefined) {
     return <span className="json-null">null</span>;
@@ -461,6 +839,94 @@ function TelemetryDashboard({ status, latency, responseHeaders, response }) {
         </span>
         <span className="ml-auto font-mono text-xs text-gray-600">{lm.label}</span>
       </div>
+
+      {/* ── Echo header console ──────────────────────────────────────────── */}
+      {/* Shows X-Echo-* headers the server reflected back from our custom headers */}
+      {(() => {
+        if (!responseHeaders) return null;
+
+        // Collect every X-Echo-* entry — works for both lowercase (axios) and mixed-case
+        const echoEntries = Object.entries(responseHeaders).filter(
+          ([k]) => k.toLowerCase().startsWith('x-echo-')
+        );
+
+        if (!echoEntries.length) return null;
+
+        return (
+          <div className="flex flex-col gap-1.5 animate-fade-in">
+            {/* Section divider */}
+            <div className="flex items-center gap-2">
+              <span className="h-px flex-1 bg-gray-800" />
+              <span className="flex items-center gap-1.5 text-xs font-semibold
+                               uppercase tracking-widest text-gray-600">
+                <span className="inline-block h-1.5 w-1.5 rounded-full
+                                 bg-indigo-400 animate-pulse" />
+                Server Echo · Custom Headers
+              </span>
+              <span className="h-px flex-1 bg-gray-800" />
+            </div>
+
+            {/* Terminal-style log */}
+            <div
+              className="overflow-hidden rounded-xl border border-indigo-900/25
+                         bg-gray-950/90"
+              style={{
+                backgroundImage:
+                  'radial-gradient(circle, rgba(99,102,241,0.04) 1px, transparent 1px)',
+                backgroundSize: '18px 18px',
+              }}
+            >
+              {/* Traffic-light bar */}
+              <div className="flex items-center gap-1.5 border-b border-gray-800/50
+                              bg-gray-900/60 px-3 py-1.5" aria-hidden="true">
+                <span className="h-2 w-2 rounded-full bg-red-500/60" />
+                <span className="h-2 w-2 rounded-full bg-amber-500/60" />
+                <span className="h-2 w-2 rounded-full bg-emerald-500/60" />
+                <span className="ml-2 font-mono text-[10px] text-gray-700">
+                  response headers · echoed
+                </span>
+                <span className="ml-auto rounded-full bg-indigo-950/60 px-2 py-0.5
+                                 font-mono text-[10px] text-indigo-400
+                                 ring-1 ring-indigo-800/40">
+                  {echoEntries.length} echoed
+                </span>
+              </div>
+
+              {/* Echo rows */}
+              <div className="flex flex-col divide-y divide-gray-800/30 px-3 py-2">
+                {echoEntries.map(([rawKey, rawVal]) => {
+                  // Strip the X-Echo- prefix to show the original name
+                  const originalKey = rawKey.replace(/^x-echo-/i, '');
+                  return (
+                    <div
+                      key={rawKey}
+                      className="flex min-w-0 items-baseline gap-2 py-1.5"
+                    >
+                      {/* Original header name */}
+                      <code className="shrink-0 font-mono text-[11px] font-semibold
+                                       text-indigo-300">
+                        {originalKey}
+                      </code>
+                      <span className="text-gray-700" aria-hidden="true">:</span>
+                      {/* Value */}
+                      <code className="min-w-0 flex-1 break-all font-mono text-[11px]
+                                       text-emerald-300/90">
+                        {rawVal}
+                      </code>
+                      {/* Echoed badge */}
+                      <span className="shrink-0 rounded-full bg-indigo-950/50 px-1.5 py-0.5
+                                       font-mono text-[9px] text-indigo-500
+                                       ring-1 ring-indigo-900/50">
+                        echoed ✓
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -473,17 +939,26 @@ export default function RequestRunner() {
     runner,
     setRunnerMethod,
     setRunnerBody,
+    setCustomHeaders,
     fireFetch,
+    sessionId,
   } = usePlaygroundStore();
 
-  const { method, url, body, isFiring, response, status, latency, error, responseHeaders } = runner;
+  const { method, url, body, isFiring, response, status, latency, error, responseHeaders, customHeaders = [] } = runner;
   const hasResult = status !== null || error !== null;
 
+  // ── Toast state — shown for 2 s on header-add or URL-copy events ─────────
+  const [toast, setToast] = useState(null);
+  const showToast = (msg) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 2000);
+  };
+
   return (
-    <div className="card flex flex-col gap-4">
+    <div className="ambient-grid card flex flex-col gap-4">
 
       {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <div className="flex h-7 w-7 items-center justify-center rounded-lg
                         bg-brand-600/20 ring-1 ring-brand-600/40">
           <svg className="h-4 w-4 text-brand-400" fill="none" viewBox="0 0 24 24"
@@ -495,6 +970,99 @@ export default function RequestRunner() {
           </svg>
         </div>
         <h2 className="text-sm font-semibold text-gray-200">Request Runner</h2>
+
+        {/* ── CORS Access badge ─────────────────────────────────────────── */}
+        <div className="group relative ml-0.5">
+          {/* Badge */}
+          <div
+            className="flex cursor-default items-center gap-1.5 rounded-full
+                       border border-emerald-700/40 px-2.5 py-0.5
+                       transition-all duration-200 hover:border-emerald-600/60"
+            style={{
+              background: 'rgba(6,78,59,0.25)',
+              boxShadow: '0 0 8px rgba(52,211,153,0.12)',
+            }}
+            aria-describedby="cors-tooltip"
+          >
+            {/* Pulsing signal dot */}
+            <span className="relative flex h-1.5 w-1.5 shrink-0">
+              <span className="absolute inline-flex h-full w-full animate-ping
+                               rounded-full bg-emerald-400 opacity-50"
+                    style={{ animationDuration: '2s' }} />
+              <span className="relative inline-flex h-1.5 w-1.5 rounded-full
+                               bg-emerald-400" />
+            </span>
+            {/* Label */}
+            <span className="font-mono text-[10px] font-bold tracking-wide text-emerald-300">
+              CORS
+            </span>
+            <span
+              className="text-[10px] font-medium text-emerald-500"
+              aria-hidden="true"
+            >
+              ALLOW-ALL (*)
+            </span>
+            {/* Info icon */}
+            <svg className="h-3 w-3 shrink-0 text-emerald-600" fill="none"
+                 viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+                 aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round"
+                    d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+
+          {/* Tooltip — appears above on hover */}
+          <div
+            id="cors-tooltip"
+            role="tooltip"
+            className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2
+                       w-64 -translate-x-1/2 rounded-xl border border-gray-700/80
+                       px-3 py-2.5 opacity-0 shadow-2xl shadow-black/60
+                       backdrop-blur-md transition-all duration-200
+                       group-hover:opacity-100"
+            style={{ background: 'rgba(15,23,42,0.96)' }}
+          >
+            {/* Arrow */}
+            <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2
+                            h-3 w-3 rotate-45 rounded-sm border-b border-r
+                            border-gray-700/80"
+                 style={{ background: 'rgba(15,23,42,0.96)' }}
+                 aria-hidden="true" />
+
+            {/* Tooltip header */}
+            <div className="mb-1.5 flex items-center gap-2">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="text-xs font-bold text-emerald-300">
+                Access-Control-Allow-Origin: *
+              </span>
+            </div>
+
+            {/* Tooltip body */}
+            <p className="text-xs leading-relaxed text-slate-400">
+              Operational on external clients:{' '}
+              <span className="font-medium text-slate-300">
+                Postman, Localhost apps, Mobile SDKs
+              </span>
+              , and any origin. No preflight restriction.
+            </p>
+
+            {/* Client chips */}
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {['Postman', 'Localhost', 'Mobile SDK', 'cURL'].map((c) => (
+                <span
+                  key={c}
+                  className="rounded-full border border-gray-700/60
+                             bg-gray-800/80 px-2 py-0.5 font-mono
+                             text-[10px] text-gray-400"
+                >
+                  {c}
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Firing indicator — pushed to the right */}
         {isFiring && (
           <span className="ml-auto flex items-center gap-1.5 text-xs text-brand-400">
             <span className="h-1.5 w-1.5 rounded-full bg-brand-400 animate-pulse-ring" />
@@ -554,6 +1122,31 @@ export default function RequestRunner() {
               {url}
             </code>
           </div>
+
+          {/* ── cURL Widget ───────────────────────────────────────────── */}
+          <CurlWidget
+            method={method}
+            url={url}
+            body={body}
+            sessionId={sessionId}
+            customHeaders={customHeaders}
+            onCopy={() => showToast('⚡ Copied!')}
+          />
+
+          {/* ── HTTP Headers Playground ───────────────────────────────── */}
+          <HeadersPlayground
+            headers={customHeaders.length ? customHeaders : [{ id: newRowId(), key: '', value: '' }]}
+            onChange={(next) => {
+              setCustomHeaders(next);
+              // Toast when the user completes a new header row (key + value both filled)
+              const prev = customHeaders.length ? customHeaders : [];
+              const added = next.filter(
+                (r) => r.key.trim() && r.value.trim() &&
+                  !prev.some((p) => p.id === r.id && p.key.trim() && p.value.trim())
+              );
+              if (added.length) showToast('⚡ Header added!');
+            }}
+          />
 
           {/* ── Request body ──────────────────────────────────────────────── */}
           {['POST', 'PUT', 'PATCH'].includes(method) && (

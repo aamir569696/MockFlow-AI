@@ -26,6 +26,9 @@ const TRANSIENT_RUNNER = {
   error:           null,
   responseHeaders: null,
   errorSimStatus:  null,   // null = disabled; number = force this status code
+  // HTTP Headers Playground — array of { id: string, key: string, value: string }
+  // Persisted across requests within a session; cleared on clearWorkspace.
+  customHeaders:   [],
 };
 
 export const usePlaygroundStore = create(
@@ -66,9 +69,12 @@ export const usePlaygroundStore = create(
           activeEndpoint: endpoint,
           runner: {
             ...TRANSIENT_RUNNER,
-            method: endpoint?.method ?? 'GET',
-            url:    endpoint ? `/mock/${state.sessionId}/${endpoint.slug}` : '',
-            body:   '',
+            method:        endpoint?.method ?? 'GET',
+            url:           endpoint ? `/mock/${state.sessionId}/${endpoint.slug}` : '',
+            body:          '',
+            // Preserve custom headers across endpoint switches so the user
+            // doesn't have to re-enter auth headers for every endpoint
+            customHeaders: state.runner.customHeaders ?? [],
           },
         })),
 
@@ -80,6 +86,10 @@ export const usePlaygroundStore = create(
 
       setErrorSimStatus: (code) =>
         set((state) => ({ runner: { ...state.runner, errorSimStatus: code } })),
+
+      /** Replace the entire custom headers array. */
+      setCustomHeaders: (customHeaders) =>
+        set((state) => ({ runner: { ...state.runner, customHeaders } })),
 
       clearRunner: () =>
         set((state) => ({
@@ -236,9 +246,28 @@ export const usePlaygroundStore = create(
             { method: runner.method, url: runner.url },
             {
               body: parsedBody,
-              headers: runner.errorSimStatus
-                ? { 'x-mockflow-force-status': String(runner.errorSimStatus) }
-                : {},
+              headers: (() => {
+                // Start with system headers
+                const h = runner.errorSimStatus
+                  ? { 'x-mockflow-force-status': String(runner.errorSimStatus) }
+                  : {};
+
+                // Merge custom headers from the Headers Playground.
+                // Rules:
+                //   • Skip rows with empty or whitespace-only keys.
+                //   • Strip CRLF characters from both key and value to prevent
+                //     header injection attacks.
+                //   • Keys are trimmed but case-preserved (HTTP/2 lowercases
+                //     them in transit, but axios preserves them for HTTP/1.1).
+                (runner.customHeaders ?? []).forEach(({ key, value }) => {
+                  const safeKey = String(key ?? '').replace(/[\r\n]/g, '').trim();
+                  if (!safeKey) return;
+                  const safeVal = String(value ?? '').replace(/[\r\n]/g, '');
+                  h[safeKey] = safeVal;
+                });
+
+                return h;
+              })(),
             },
           );
 

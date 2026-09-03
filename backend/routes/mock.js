@@ -4,6 +4,34 @@ import { generateResponse, seedFromKey } from '../services/DataGenerator.js';
 
 const router = Router();
 
+// ── Body merge helper ─────────────────────────────────────────────────────────
+
+/**
+ * deepMerge(target, override) — recursively merges `override` into `target`.
+ *
+ * Rules:
+ *  • Both objects → recurse into matching keys; override keys win on collision.
+ *  • `override` is a primitive / array / non-object → `override` replaces `target`.
+ *  • `override` is null / undefined → `target` is returned unchanged.
+ *
+ * This is intentionally non-destructive: a fresh merged object is returned,
+ * the original generated mock is never mutated.
+ */
+function deepMerge(target, override) {
+  if (override === null || override === undefined) return target;
+  if (typeof override !== 'object' || Array.isArray(override)) return override;
+  if (typeof target !== 'object' || Array.isArray(target) || target === null) {
+    return override;
+  }
+  const result = { ...target };
+  for (const key of Object.keys(override)) {
+    result[key] = Object.prototype.hasOwnProperty.call(result, key)
+      ? deepMerge(result[key], override[key])
+      : override[key];
+  }
+  return result;
+}
+
 // ── Input validators ──────────────────────────────────────────────────────────
 
 /**
@@ -172,16 +200,58 @@ const handleMock = async (req, res, next) => {
     }
 
     const statusParam = parseInt(req.query.status, 10);
-    const { status, body } = generateResponse(definition, method, count, seedOpts);
+    const { status, body: generatedBody } = generateResponse(definition, method, count, seedOpts);
     const finalStatus = !isNaN(statusParam) && statusParam >= 100 && statusParam <= 599
       ? statusParam
       : status;
 
-    // ── 7. Respond ───────────────────────────────────────────────────────
+    // ── Body field override (POST / PUT / PATCH) ──────────────────────────
+    // When the caller supplies a JSON body, deep-merge it over the generated
+    // mock so that user-provided fields (e.g. `title`, `body`, `price`) appear
+    // in the response verbatim, while unspecified fields retain realistic values.
+    //
+    // Merge only applies to single-object responses (isCollection=false).
+    // Collection responses (arrays) are left untouched — merging user fields
+    // into every array item would produce confusing duplicate data.
+    const userBody = req.body;
+    const hasUserBody = userBody
+      && typeof userBody === 'object'
+      && !Array.isArray(userBody)
+      && Object.keys(userBody).length > 0;
+
+    const MERGE_METHODS = ['POST', 'PUT', 'PATCH'];
+    const body = hasUserBody && MERGE_METHODS.includes(method) && !Array.isArray(generatedBody)
+      ? deepMerge(generatedBody, userBody)
+      : generatedBody;
+
+    // ── 7. Echo custom request headers ───────────────────────────────────
+    // Any inbound header whose name starts with "x-custom-" or "x-mock-"
+    // (case-insensitive) is echoed back as an "X-Echo-*" response header.
+    // This lets the frontend's Headers Playground display round-trip proof
+    // that custom headers reached the server.
+    //
+    // Security: keys are validated against a safe-name regex before being
+    // used as header names — prevents CRLF injection through crafted keys.
+    const SAFE_HEADER_RE = /^[a-zA-Z0-9\-_]+$/;
+    for (const [hKey, hVal] of Object.entries(req.headers)) {
+      const lower = hKey.toLowerCase();
+      if (lower.startsWith('x-custom-') || lower.startsWith('x-mock-')) {
+        const echoName = `X-Echo-${hKey}`;
+        if (SAFE_HEADER_RE.test(echoName.replace(/:/g, ''))) {
+          // Truncate long values to avoid exceeding header size limits
+          res.setHeader(echoName, String(hVal).slice(0, 256));
+        }
+      }
+    }
+
+    // ── 8. Respond ───────────────────────────────────────────────────────
     // Header values are the validated (sanitised) versions — never raw user input.
     res.setHeader('X-MockFlow-Session',   sessionId);
     res.setHeader('X-MockFlow-Slug',      endpointSlug);
     res.setHeader('X-MockFlow-Generated', 'true');
+    if (hasUserBody && MERGE_METHODS.includes(method) && !Array.isArray(generatedBody)) {
+      res.setHeader('X-MockFlow-Body-Merged', 'true');
+    }
     // Expose whether deterministic seed mode was active (handy for testing tools)
     if (seedOpts.seed != null) {
       res.setHeader('X-MockFlow-Seed', String(seedOpts.seed));

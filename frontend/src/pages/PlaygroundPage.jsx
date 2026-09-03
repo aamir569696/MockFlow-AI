@@ -338,7 +338,7 @@ export default function PlaygroundPage() {
           id="panel-input"
           role="tabpanel"
           aria-labelledby="tab-input"
-          className={`flex min-w-0 flex-col gap-4 p-4 sm:p-5
+          className={`ambient-grid flex min-w-0 flex-col gap-4 p-4 sm:p-5
                       lg:w-[42%] lg:border-r lg:border-gray-800/40
                       ${activeTab === 'input' ? 'flex' : 'hidden lg:flex'}`}
         >
@@ -359,7 +359,7 @@ export default function PlaygroundPage() {
           id="panel-output"
           role="tabpanel"
           aria-labelledby="tab-output"
-          className={`flex min-w-0 flex-1 flex-col gap-4 p-4 sm:p-5
+          className={`ambient-grid flex min-w-0 flex-1 flex-col gap-4 p-4 sm:p-5
                       ${activeTab === 'output' ? 'flex' : 'hidden lg:flex'}`}
         >
           <div className="hidden items-center gap-2 lg:flex">
