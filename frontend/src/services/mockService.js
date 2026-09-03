@@ -36,16 +36,19 @@ export const mockService = {
   /**
    * Fire a live request to a mock endpoint.
    * Never throws — returns { status, response, latency, responseHeaders, error }.
+   *
+   * @param {{ method: string, url: string }} endpoint
+   * @param {{ body?: any, headers?: Record<string,string> }} options
    */
-  async runRequest({ method = 'GET', url }, { body } = {}) {
+  async runRequest({ method = 'GET', url }, { body, headers: extraHeaders } = {}) {
     const start = Date.now();
     try {
       const res = await api.request({
         method,
         url,
         data: body,
-        // Include response headers
-        validateStatus: () => true, // treat all status codes as resolved
+        headers: extraHeaders ?? {},
+        validateStatus: () => true,
       });
       return {
         status: res.status,
@@ -55,7 +58,6 @@ export const mockService = {
         error: null,
       };
     } catch (err) {
-      // Network-level failure (no response)
       return {
         status: null,
         response: null,

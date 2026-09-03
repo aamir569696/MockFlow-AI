@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { MockResolver } from '../services/MockResolver.js';
-import { generateResponse } from '../services/DataGenerator.js';
+import { generateResponse, seedFromKey } from '../services/DataGenerator.js';
 
 const router = Router();
 
@@ -110,7 +110,37 @@ const handleMock = async (req, res, next) => {
       });
     }
 
-    // ── 5. Latency simulation ────────────────────────────────────────────
+    // ── 5. Error Response Simulator ──────────────────────────────────────
+    // When the frontend sends x-mockflow-force-status, short-circuit with a
+    // realistic JSON error body matching that status code — useful for testing
+    // client-side error boundaries without needing a real server error.
+    const forceStatusRaw = req.headers['x-mockflow-force-status'];
+    if (forceStatusRaw) {
+      const forceStatus = parseInt(forceStatusRaw, 10);
+      if (!isNaN(forceStatus) && forceStatus >= 400 && forceStatus <= 599) {
+        const errorBodies = {
+          400: { error: { code: 'BAD_REQUEST',          message: 'The request was malformed or missing required parameters.' } },
+          401: { error: { code: 'UNAUTHORIZED',         message: 'Authentication is required to access this resource.',      detail: 'Missing or invalid Bearer token.' } },
+          403: { error: { code: 'FORBIDDEN',            message: 'You do not have permission to perform this action.' } },
+          404: { error: { code: 'NOT_FOUND',            message: `Resource '${endpointSlug}' could not be found.` } },
+          409: { error: { code: 'CONFLICT',             message: 'The request conflicts with the current state of the resource.' } },
+          422: { error: { code: 'UNPROCESSABLE_ENTITY', message: 'Validation failed.', fields: { id: 'must be a valid UUID' } } },
+          429: { error: { code: 'RATE_LIMITED',         message: 'Too many requests. Please slow down.', retryAfter: 60 } },
+          500: { error: { code: 'INTERNAL_SERVER_ERROR',message: 'An unexpected error occurred on the server.', requestId: `mf-${Date.now()}` } },
+          502: { error: { code: 'BAD_GATEWAY',          message: 'The upstream service returned an invalid response.' } },
+          503: { error: { code: 'SERVICE_UNAVAILABLE',  message: 'The service is temporarily unavailable. Try again later.' } },
+        };
+        const body = errorBodies[forceStatus] ?? {
+          error: { code: `HTTP_${forceStatus}`, message: `Simulated ${forceStatus} error response.` },
+        };
+        res.setHeader('X-MockFlow-Session',       sessionId);
+        res.setHeader('X-MockFlow-Slug',          endpointSlug);
+        res.setHeader('X-MockFlow-Simulated-Error', String(forceStatus));
+        return res.status(forceStatus).json(body);
+      }
+    }
+
+    // ── 6. Latency simulation ────────────────────────────────────────────
     const requestedDelay = parseInt(req.headers['x-mockflow-delay'] ?? '0', 10);
     const headerDelay    = !isNaN(requestedDelay) ? requestedDelay : 0;
     const endpointDelay  = definition.delayMs ?? 0;
@@ -126,18 +156,36 @@ const handleMock = async (req, res, next) => {
       ? Math.min(countParam, 50)
       : null;
 
+    // ── Deterministic Seed Toggle ─────────────────────────────────────────
+    // ?seed=true  → derive a numeric seed from sessionId + slug + method
+    //               so the same request always returns identical data.
+    // ?seed=<int> → use the caller-supplied integer directly as the seed.
+    // Omitted / any other value → pure random (default behaviour).
+    let seedOpts = {};
+    const seedParam = req.query.seed;
+    if (seedParam === 'true' || seedParam === '1') {
+      const derivedSeed = seedFromKey(`${sessionId}:${endpointSlug}:${method}`);
+      seedOpts = { seed: derivedSeed };
+    } else {
+      const parsedSeed = parseInt(seedParam, 10);
+      if (!isNaN(parsedSeed)) seedOpts = { seed: parsedSeed };
+    }
+
     const statusParam = parseInt(req.query.status, 10);
-    const { status, body } = generateResponse(definition, method, count);
+    const { status, body } = generateResponse(definition, method, count, seedOpts);
     const finalStatus = !isNaN(statusParam) && statusParam >= 100 && statusParam <= 599
       ? statusParam
       : status;
 
     // ── 7. Respond ───────────────────────────────────────────────────────
     // Header values are the validated (sanitised) versions — never raw user input.
-    // This prevents CRLF header-injection from a crafted URL.
-    res.setHeader('X-MockFlow-Session',   sessionId);    // validated UUID
-    res.setHeader('X-MockFlow-Slug',      endpointSlug); // validated slug
+    res.setHeader('X-MockFlow-Session',   sessionId);
+    res.setHeader('X-MockFlow-Slug',      endpointSlug);
     res.setHeader('X-MockFlow-Generated', 'true');
+    // Expose whether deterministic seed mode was active (handy for testing tools)
+    if (seedOpts.seed != null) {
+      res.setHeader('X-MockFlow-Seed', String(seedOpts.seed));
+    }
 
     if (finalStatus === 204 || body === null) {
       return res.status(finalStatus).end();

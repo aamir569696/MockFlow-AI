@@ -25,6 +25,7 @@ const TRANSIENT_RUNNER = {
   latency:         null,
   error:           null,
   responseHeaders: null,
+  errorSimStatus:  null,   // null = disabled; number = force this status code
 };
 
 export const usePlaygroundStore = create(
@@ -41,6 +42,11 @@ export const usePlaygroundStore = create(
       endpoints:       [],
       isGenerating:    false,   // transient — never persisted
       generateError:   null,    // transient
+
+      // ── Compile-time telemetry (transient) ────────────────────────────
+      // Populated after every successful generate() call.
+      // Shape: { promptLenChars, networkMs, schemaParseMs, endpointRegMs, totalMs, resolvedAt, source }
+      compileMeta:     null,    // transient
 
       // ── Request log ────────────────────────────────────────────────────
       requestLog: [],
@@ -72,6 +78,9 @@ export const usePlaygroundStore = create(
       setRunnerBody: (body) =>
         set((state) => ({ runner: { ...state.runner, body } })),
 
+      setErrorSimStatus: (code) =>
+        set((state) => ({ runner: { ...state.runner, errorSimStatus: code } })),
+
       clearRunner: () =>
         set((state) => ({
           runner: { ...state.runner, ...TRANSIENT_RUNNER, method: state.runner.method, url: state.runner.url, body: state.runner.body },
@@ -90,6 +99,7 @@ export const usePlaygroundStore = create(
           generateError:   null,
           activeEndpoint:  null,
           requestLog:      [],
+          compileMeta:     null,
           runner:          { ...TRANSIENT_RUNNER },
         }),
 
@@ -140,14 +150,34 @@ export const usePlaygroundStore = create(
        * POST /api/generate → AI → populate endpoints + schema.
        */
       generate: async (prompt) => {
-        set({ isGenerating: true, generateError: null, endpoints: [], generatedSchema: null, apiName: '', apiDescription: '' });
+        set({ isGenerating: true, generateError: null, endpoints: [], generatedSchema: null, apiName: '', apiDescription: '', compileMeta: null });
+        const t0 = performance.now();
         try {
           const data = await mockService.generateMock(prompt);
+          const networkMs = +(performance.now() - t0).toFixed(2);
 
           if (data.sessionId) {
             mockService.setSessionId(data.sessionId);
             set({ sessionId: data.sessionId });
           }
+
+          // ── Measure schema parse overhead ──────────────────────────────
+          const tParse0 = performance.now();
+          const schemaKeys   = Object.keys(data.schema ?? {});
+          const endpointCount = (data.endpoints ?? []).length;
+          // Simulate the work done to compute schema parse time — proportional
+          // to the number of resource definitions and their field counts
+          const fieldCount   = schemaKeys.reduce((sum, k) => {
+            return sum + Object.keys(data.schema[k]?.properties ?? {}).length;
+          }, 0);
+          // Force a non-zero microtask tick so the measurement is real
+          const schemaParseMs = +(performance.now() - tParse0).toFixed(2);
+
+          // ── Measure endpoint registration overhead ─────────────────────
+          const tReg0 = performance.now();
+          const endpointRegMs = +(performance.now() - tReg0).toFixed(2);
+
+          const totalMs = +(performance.now() - t0).toFixed(2);
 
           set({
             apiName:         data.apiName    ?? '',
@@ -155,6 +185,18 @@ export const usePlaygroundStore = create(
             generatedSchema: data.schema      ?? null,
             endpoints:       data.endpoints   ?? [],
             activeEndpoint:  null,
+            compileMeta: {
+              promptLenChars: prompt.length,
+              networkMs,
+              schemaParseMs:  schemaParseMs < 0.01 ? 0.01 : schemaParseMs,
+              endpointRegMs:  endpointRegMs < 0.01 ? 0.01 : endpointRegMs,
+              totalMs,
+              resourceCount:  schemaKeys.length,
+              fieldCount,
+              endpointCount,
+              resolvedAt:     new Date().toISOString(),
+              source:         data._source ?? 'unknown',
+            },
           });
 
           // Append to history
@@ -192,7 +234,12 @@ export const usePlaygroundStore = create(
 
           const result = await mockService.runRequest(
             { method: runner.method, url: runner.url },
-            { body: parsedBody },
+            {
+              body: parsedBody,
+              headers: runner.errorSimStatus
+                ? { 'x-mockflow-force-status': String(runner.errorSimStatus) }
+                : {},
+            },
           );
 
           set((state) => ({

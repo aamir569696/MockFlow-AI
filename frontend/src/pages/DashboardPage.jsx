@@ -292,12 +292,132 @@ function CollectionCard({ col, onSelect, isActive }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// MicroTelemetry panel
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Trace line — one row in the telemetry panel.
+ * Renders a label, an animated fill bar, and a monospaced value.
+ */
+function TraceRow({ label, value, barPct = 0, color = '#6272f5', animDelay = '0s', dimmed = false }) {
+  const [width, setWidth] = useState(0);
+
+  // Animate bar width from 0 → barPct on mount
+  useEffect(() => {
+    const t = setTimeout(() => setWidth(barPct), 60);
+    return () => clearTimeout(t);
+  }, [barPct]);
+
+  return (
+    <div className={`flex items-center gap-3 py-1 transition-opacity ${dimmed ? 'opacity-40' : ''}`}
+         style={{ animationDelay: animDelay }}>
+      {/* Label */}
+      <span className="w-44 shrink-0 truncate font-mono text-xs text-gray-500">
+        {label}
+      </span>
+
+      {/* Bar track */}
+      <div className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-gray-800">
+        <div
+          className="absolute inset-y-0 left-0 rounded-full transition-all duration-700 ease-out"
+          style={{ width: `${width}%`, background: color }}
+          aria-hidden="true"
+        />
+      </div>
+
+      {/* Value */}
+      <span className="w-16 shrink-0 text-right font-mono text-xs tabular-nums"
+            style={{ color }}>
+        {value}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * MicroTelemetry — displays compile-time trace data from the last generation.
+ */
+function MicroTelemetry({ compileMeta }) {
+  if (!compileMeta) return (
+    <div className="flex flex-col items-center justify-center py-8 text-center">
+      <p className="text-xs text-gray-700">
+        Telemetry will appear after the next generation
+      </p>
+    </div>
+  );
+
+  const {
+    promptLenChars, networkMs, schemaParseMs, endpointRegMs, totalMs,
+    resourceCount, fieldCount, endpointCount, resolvedAt, source,
+  } = compileMeta;
+
+  // Normalise bars relative to totalMs (cap at 100%)
+  const pct = (ms) => Math.min(Math.round((ms / (totalMs || 1)) * 100), 100);
+
+  const sourceColor  = source === 'ai' ? '#34d399' : '#f59e0b';
+  const sourceLabel  = source === 'ai' ? 'Gemini AI' : 'Local Fallback';
+
+  const rows = [
+    { label: 'Total pipeline time',       value: `${totalMs} ms`,       bar: 100,                   color: '#6272f5' },
+    { label: 'Network / AI round-trip',   value: `${networkMs} ms`,     bar: pct(networkMs),        color: '#818cf8' },
+    { label: 'Schema parsing overhead',   value: `${schemaParseMs} ms`, bar: Math.max(pct(schemaParseMs), 2), color: '#38bdf8' },
+    { label: 'Endpoint registration',     value: `${endpointRegMs} ms`, bar: Math.max(pct(endpointRegMs), 1), color: '#4ade80' },
+    { label: 'Prompt input length',       value: `${promptLenChars} ch`,bar: Math.min(promptLenChars / 10, 100), color: '#a78bfa' },
+  ];
+
+  const stats = [
+    { k: 'Resources',  v: resourceCount  },
+    { k: 'Fields',     v: fieldCount     },
+    { k: 'Endpoints',  v: endpointCount  },
+    { k: 'Source',     v: sourceLabel, color: sourceColor },
+  ];
+
+  return (
+    <div className="flex flex-col gap-4 animate-fade-in">
+      {/* Trace rows */}
+      <div className="flex flex-col">
+        {rows.map((r, i) => (
+          <TraceRow
+            key={r.label}
+            label={r.label}
+            value={r.value}
+            barPct={r.bar}
+            color={r.color}
+            animDelay={`${i * 0.06}s`}
+          />
+        ))}
+      </div>
+
+      {/* Stat pills */}
+      <div className="flex flex-wrap gap-2">
+        {stats.map(({ k, v, color }) => (
+          <div key={k}
+               className="flex items-center gap-1.5 rounded-full border border-gray-800
+                          bg-gray-900/60 px-3 py-1">
+            <span className="text-xs text-gray-600">{k}:</span>
+            <span className="font-mono text-xs font-semibold"
+                  style={{ color: color ?? '#e2e8f0' }}>
+              {v}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      {/* Resolved timestamp */}
+      <p className="font-mono text-xs text-gray-700">
+        resolved at <span className="text-gray-600">{new Date(resolvedAt).toLocaleTimeString()}</span>
+      </p>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // DashboardPage
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
   const { isAuthenticated, user, sandboxApiKey, savedCollections } = useAuthStore();
-  const { requestLog } = usePlaygroundStore();
+  const { requestLog, compileMeta } = usePlaygroundStore();
   const navigate = useNavigate();
 
   const [activeColIdx, setActiveColIdx] = useState(0);
@@ -637,6 +757,30 @@ export default function DashboardPage() {
                 ))}
               </div>
             )}
+          </div>
+        </div>
+
+        {/* ── Micro-Telemetry Panel ──────────────────────────────────── */}
+        <div className="rounded-2xl border border-gray-800/60 bg-gray-900/30
+                        backdrop-blur-sm overflow-hidden animate-fade-in"
+             style={{ animationDelay: '0.25s' }}>
+          {/* Header */}
+          <div className="flex items-center justify-between border-b border-gray-800/60
+                          bg-gray-900/60 px-4 py-2.5">
+            <div className="flex items-center gap-2">
+              <span className={`h-2 w-2 rounded-full ${compileMeta ? 'bg-sky-400 animate-pulse' : 'bg-gray-700'}`} />
+              <h2 className="text-xs font-semibold uppercase tracking-widest text-gray-500">
+                Compile Telemetry
+              </h2>
+            </div>
+            {compileMeta && (
+              <span className="rounded-full bg-gray-800 px-2 py-0.5 font-mono text-xs text-gray-600">
+                {compileMeta.totalMs} ms total
+              </span>
+            )}
+          </div>
+          <div className="px-4 py-3">
+            <MicroTelemetry compileMeta={compileMeta} />
           </div>
         </div>
 

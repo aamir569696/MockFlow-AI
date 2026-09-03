@@ -10,10 +10,7 @@ const METHOD_COLORS = {
   DELETE: 'method-DELETE',
 };
 
-// ── Shimmer skeleton row ──────────────────────────────────────────────────────
-// Each row has a method-badge-shaped block + a path bar of randomised width.
-// The sweep animation comes from the CSS `skeleton` class + a pseudo-element
-// shimmer defined via a background gradient animation.
+// ── Shimmer skeleton ──────────────────────────────────────────────────────────
 
 const SHIMMER_WIDTHS = ['w-2/3', 'w-3/4', 'w-1/2', 'w-5/6', 'w-3/5', 'w-4/5'];
 
@@ -26,11 +23,8 @@ function SkeletonRow({ index }) {
       style={{ animationDelay: `${index * 0.07}s` }}
       aria-hidden="true"
     >
-      {/* Method badge placeholder */}
       <div className="skeleton h-5 w-12 shrink-0 rounded" />
-      {/* Path bar */}
       <div className={`skeleton h-3 ${barWidth} rounded`} />
-      {/* Action buttons placeholder */}
       <div className="ml-auto flex shrink-0 gap-1.5">
         <div className="skeleton h-6 w-8 rounded-md" />
         <div className="skeleton h-6 w-10 rounded-md" />
@@ -42,74 +36,166 @@ function SkeletonRow({ index }) {
 function SkeletonOverlay() {
   return (
     <div className="flex flex-col gap-2" role="status" aria-label="Generating endpoints…">
-      {/* Generating label */}
       <div className="flex items-center gap-2 pb-1">
         <span className="h-1.5 w-1.5 rounded-full bg-brand-500 animate-pulse" />
         <span className="text-xs font-medium text-brand-500 animate-pulse">
           AI is designing your schema…
         </span>
       </div>
-      {/* Six shimmer rows — matches typical endpoint count */}
-      {[...Array(6)].map((_, i) => (
-        <SkeletonRow key={i} index={i} />
-      ))}
+      {[...Array(6)].map((_, i) => <SkeletonRow key={i} index={i} />)}
     </div>
   );
 }
 
-// ── Premium empty state ───────────────────────────────────────────────────────
+// ── Futuristic empty state ────────────────────────────────────────────────────
 
 function EmptyState() {
   return (
-    <div className="flex flex-col items-center justify-center py-10 text-center
-                    animate-fade-in">
-      {/* Illustrated icon stack */}
-      <div className="relative mb-5 flex h-20 w-20 items-center justify-center">
-        {/* Outer glow ring */}
-        <div className="absolute inset-0 rounded-2xl bg-brand-600/10
-                        ring-1 ring-brand-700/30" />
+    <div
+      className="relative flex flex-col items-center justify-center overflow-hidden
+                 rounded-2xl border border-gray-800/60 px-6 py-10 text-center
+                 animate-fade-in"
+      style={{
+        /* Subtle dot-grid mesh background */
+        backgroundImage:
+          'radial-gradient(circle, rgba(98,114,245,0.07) 1px, transparent 1px)',
+        backgroundSize: '22px 22px',
+        backgroundPosition: 'center center',
+      }}
+    >
+      {/* Corner accent lines — top-left */}
+      <span className="pointer-events-none absolute left-0 top-0 h-10 w-px
+                        bg-gradient-to-b from-brand-500/60 to-transparent" aria-hidden="true" />
+      <span className="pointer-events-none absolute left-0 top-0 h-px w-10
+                        bg-gradient-to-r from-brand-500/60 to-transparent" aria-hidden="true" />
+      {/* Corner accent lines — bottom-right */}
+      <span className="pointer-events-none absolute bottom-0 right-0 h-10 w-px
+                        bg-gradient-to-t from-brand-500/60 to-transparent" aria-hidden="true" />
+      <span className="pointer-events-none absolute bottom-0 right-0 h-px w-10
+                        bg-gradient-to-l from-brand-500/60 to-transparent" aria-hidden="true" />
+
+      {/* Glowing radial backdrop */}
+      <div
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background:
+            'radial-gradient(ellipse 60% 50% at 50% 50%, rgba(98,114,245,0.08) 0%, transparent 100%)',
+        }}
+        aria-hidden="true"
+      />
+
+      {/* Spinning neon icon container */}
+      <div className="relative mb-6 flex h-24 w-24 items-center justify-center">
+        {/* Outer slow-spin ring — conic gradient arc */}
+        <div
+          className="absolute inset-0 rounded-full animate-spin-slow"
+          style={{
+            background:
+              'conic-gradient(from 0deg, rgba(98,114,245,0.0) 0%, rgba(98,114,245,0.8) 40%, rgba(192,132,252,0.6) 60%, rgba(98,114,245,0.0) 100%)',
+            padding: '1.5px',
+            WebkitMask:
+              'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
+            WebkitMaskComposite: 'xor',
+            maskComposite: 'exclude',
+          }}
+          aria-hidden="true"
+        />
+
+        {/* Middle pulsing ring */}
+        <div
+          className="absolute inset-2 rounded-full border border-brand-700/40
+                     animate-pulse"
+          aria-hidden="true"
+        />
+
         {/* Inner icon surface */}
-        <div className="relative flex h-14 w-14 items-center justify-center
-                        rounded-xl bg-gray-900 ring-1 ring-gray-800">
-          <svg className="h-7 w-7 text-gray-600" fill="none" viewBox="0 0 24 24"
-               stroke="currentColor" strokeWidth={1.25}>
-            <path strokeLinecap="round" strokeLinejoin="round"
-                  d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5
-                     a2 2 0 00-2 2v12a2 2 0 002 2z" />
+        <div
+          className="relative flex h-14 w-14 items-center justify-center rounded-2xl
+                     border border-brand-700/30"
+          style={{
+            background:
+              'linear-gradient(135deg, rgba(30,29,82,0.9) 0%, rgba(15,15,35,0.95) 100%)',
+            boxShadow: '0 0 24px rgba(98,114,245,0.2), inset 0 1px 0 rgba(255,255,255,0.05)',
+          }}
+        >
+          {/* Neon code brackets SVG */}
+          <svg
+            className="h-7 w-7"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="url(#iconGrad)"
+            strokeWidth={1.75}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <defs>
+              <linearGradient id="iconGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%"   stopColor="#8098fb" />
+                <stop offset="50%"  stopColor="#6272f5" />
+                <stop offset="100%" stopColor="#c084fc" />
+              </linearGradient>
+            </defs>
+            <path d="M8 9l-3 3 3 3M16 9l3 3-3 3M14 4l-4 16" />
           </svg>
+
+          {/* Inner glow overlay */}
+          <div
+            className="pointer-events-none absolute inset-0 rounded-2xl"
+            style={{
+              background:
+                'radial-gradient(circle at 50% 30%, rgba(98,114,245,0.15) 0%, transparent 70%)',
+            }}
+            aria-hidden="true"
+          />
         </div>
-        {/* Floating method pill decorations */}
-        <span className="absolute -top-1.5 -right-2 rounded-full bg-emerald-950
-                         px-1.5 py-0.5 font-mono text-[9px] font-bold text-emerald-500
-                         ring-1 ring-emerald-800/60">
-          GET
-        </span>
-        <span className="absolute -bottom-1.5 -left-2 rounded-full bg-blue-950
-                         px-1.5 py-0.5 font-mono text-[9px] font-bold text-blue-500
-                         ring-1 ring-blue-800/60">
-          POST
-        </span>
+
+        {/* Orbiting accent dots */}
+        <div
+          className="absolute inset-0 animate-spin"
+          style={{ animationDuration: '8s' }}
+          aria-hidden="true"
+        >
+          <span
+            className="absolute h-1.5 w-1.5 rounded-full bg-brand-400"
+            style={{ top: '4px', left: '50%', transform: 'translateX(-50%)' }}
+          />
+        </div>
+        <div
+          className="absolute inset-0 animate-spin"
+          style={{ animationDuration: '12s', animationDirection: 'reverse' }}
+          aria-hidden="true"
+        >
+          <span
+            className="absolute h-1 w-1 rounded-full bg-purple-400"
+            style={{ bottom: '6px', right: '10px' }}
+          />
+        </div>
       </div>
 
-      {/* Copy */}
-      <h3 className="text-sm font-semibold text-gray-400">No endpoints yet</h3>
-      <p className="mt-1.5 max-w-[220px] text-xs leading-relaxed text-gray-600">
-        Describe your API in the panel on the left and click{' '}
-        <span className="font-semibold text-brand-500">Generate Mock API</span> to
-        create live, hittable routes instantly.
+      {/* Headline */}
+      <h3 className="text-sm font-bold text-gray-300">No endpoints yet</h3>
+      <p className="mt-2 max-w-[210px] text-xs leading-relaxed text-gray-600">
+        Describe your API on the left and click{' '}
+        <span className="font-semibold text-brand-400">Generate Mock API</span> to
+        spin up live, hittable routes instantly.
       </p>
 
-      {/* Decorative route previews */}
-      <div className="mt-5 flex flex-col gap-1.5 w-full max-w-xs opacity-30"
-           aria-hidden="true">
+      {/* Decorative ghost route rows */}
+      <div
+        className="mt-6 flex w-full max-w-xs flex-col gap-1.5"
+        aria-hidden="true"
+        style={{ opacity: 0.22 }}
+      >
         {[
           { m: 'GET',    p: '/api/mock/…/users'    },
           { m: 'POST',   p: '/api/mock/…/users'    },
           { m: 'DELETE', p: '/api/mock/…/users'    },
         ].map(({ m, p }) => (
-          <div key={`${m}-${p}`}
-               className="flex items-center gap-2 rounded-lg border border-gray-800
-                          bg-gray-900/40 px-3 py-2">
+          <div
+            key={`${m}-${p}`}
+            className="flex items-center gap-2 rounded-lg border border-gray-800/80
+                       bg-gray-900/30 px-3 py-2"
+          >
             <span className={`method-badge ${METHOD_COLORS[m] ?? 'method-GET'}`}>{m}</span>
             <code className="text-xs text-gray-600">{p}</code>
           </div>
@@ -145,7 +231,7 @@ export default function EndpointPreview() {
     isGenerating, clearWorkspace,
   } = usePlaygroundStore();
 
-  const [copiedSlug, setCopiedSlug] = useState(null);
+  const [copiedSlug, setCopiedSlug]     = useState(null);
   const [confirmClear, setConfirmClear] = useState(false);
 
   const copyUrl = (url, slug) => {
@@ -157,7 +243,7 @@ export default function EndpointPreview() {
   const handleClear = () => {
     if (!confirmClear) {
       setConfirmClear(true);
-      setTimeout(() => setConfirmClear(false), 2800); // auto-cancel after 2.8s
+      setTimeout(() => setConfirmClear(false), 2800);
       return;
     }
     clearWorkspace();
@@ -184,18 +270,14 @@ export default function EndpointPreview() {
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Count badge */}
           {endpoints.length > 0 && (
             <span className="rounded-full bg-brand-900/60 px-2 py-0.5 text-xs
                              font-semibold text-brand-300 ring-1 ring-brand-700/50">
               {endpoints.length}
             </span>
           )}
-
-          {/* Export button — only when endpoints exist */}
           {endpoints.length > 0 && <ExportDropdown compact />}
 
-          {/* Clear Workspace button */}
           {(endpoints.length > 0 || isGenerating) && (
             <button
               className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5
@@ -236,20 +318,18 @@ export default function EndpointPreview() {
         </div>
       </div>
 
-      {/* ── Shimmer skeleton while generating ─────────────────────────── */}
+      {/* ── Shimmer ────────────────────────────────────────────────────── */}
       {isGenerating && <SkeletonOverlay />}
 
-      {/* ── Premium empty state ────────────────────────────────────────── */}
+      {/* ── Futuristic empty state ─────────────────────────────────────── */}
       {!isGenerating && !endpoints.length && <EmptyState />}
 
       {/* ── Endpoint list ──────────────────────────────────────────────── */}
       {!isGenerating && endpoints.length > 0 && (
         <ul className="flex flex-col gap-1.5 animate-slide-up" role="list">
           {endpoints.map((ep, index) => {
-            const mockPath = `/api/mock/${sessionId}/${ep.slug}`;
-            const isActive =
-              activeEndpoint?.slug === ep.slug &&
-              activeEndpoint?.method === ep.method;
+            const mockPath  = `/api/mock/${sessionId}/${ep.slug}`;
+            const isActive  = activeEndpoint?.slug === ep.slug && activeEndpoint?.method === ep.method;
             const methodClass = METHOD_COLORS[ep.method] ?? 'method-GET';
 
             return (
@@ -268,18 +348,15 @@ export default function EndpointPreview() {
                 aria-pressed={isActive}
                 aria-label={`${ep.method} ${mockPath}`}
               >
-                {/* Active left-edge indicator */}
                 {isActive && (
                   <div className="absolute left-0 top-1/2 h-4 w-0.5
                                   -translate-y-1/2 rounded-r bg-brand-500" />
                 )}
 
-                {/* Method badge */}
                 <span className={`method-badge ${methodClass}`}>
                   {ep.method ?? 'GET'}
                 </span>
 
-                {/* Path + description */}
                 <div className="flex min-w-0 flex-1 flex-col">
                   <code className="break-all text-xs text-gray-300
                                    group-hover:text-gray-100 transition-colors
@@ -293,7 +370,6 @@ export default function EndpointPreview() {
                   )}
                 </div>
 
-                {/* Actions — always visible on touch, hover-fade on pointer devices */}
                 <div className="flex shrink-0 items-center gap-1.5
                                 opacity-100 transition-opacity
                                 [@media(hover:hover)]:opacity-0

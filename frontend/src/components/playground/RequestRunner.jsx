@@ -505,10 +505,25 @@ export default function RequestRunner() {
 
       {/* ── Empty state ─────────────────────────────────────────────────────── */}
       {!activeEndpoint ? (
-        <div className="flex flex-col items-center justify-center py-10 text-center">
+        <div
+          className="relative flex flex-col items-center justify-center overflow-hidden
+                     rounded-xl py-10 text-center"
+          style={{
+            backgroundImage:
+              'radial-gradient(circle, rgba(98,114,245,0.05) 1px, transparent 1px)',
+            backgroundSize: '20px 20px',
+          }}
+        >
+          {/* Corner accents */}
+          <span className="pointer-events-none absolute left-0 top-0 h-6 w-px bg-gradient-to-b from-brand-500/40 to-transparent" aria-hidden="true" />
+          <span className="pointer-events-none absolute left-0 top-0 h-px w-6 bg-gradient-to-r from-brand-500/40 to-transparent" aria-hidden="true" />
+          <span className="pointer-events-none absolute bottom-0 right-0 h-6 w-px bg-gradient-to-t from-brand-500/40 to-transparent" aria-hidden="true" />
+          <span className="pointer-events-none absolute bottom-0 right-0 h-px w-6 bg-gradient-to-l from-brand-500/40 to-transparent" aria-hidden="true" />
+
           <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl
-                          bg-gray-800 ring-1 ring-gray-700">
-            <svg className="h-6 w-6 text-gray-600" fill="none" viewBox="0 0 24 24"
+                          border border-brand-900/40 bg-gray-900/80 ring-1 ring-brand-900/20"
+               style={{ boxShadow: '0 0 16px rgba(98,114,245,0.07)' }}>
+            <svg className="h-6 w-6 text-brand-700" fill="none" viewBox="0 0 24 24"
                  stroke="currentColor" strokeWidth={1.5}>
               <path strokeLinecap="round" strokeLinejoin="round"
                     d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5" />
