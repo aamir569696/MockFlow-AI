@@ -124,19 +124,19 @@ function MetricCard({ icon, label, value, sub, sparkValues, sparkColor, glowColo
         />
       )}
 
-      {/* Header row */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span className="text-gray-500">{icon}</span>
-          <span className="text-xs font-medium uppercase tracking-widest text-gray-600">
+      {/* Header row — label truncates instead of overflowing on narrow cards */}
+      <div className="flex min-w-0 items-center justify-between gap-1">
+        <div className="flex min-w-0 items-center gap-1.5 overflow-hidden">
+          <span className="shrink-0 text-gray-500">{icon}</span>
+          <span className="truncate text-xs font-medium uppercase tracking-wide text-gray-600">
             {label}
           </span>
         </div>
         {trend != null && (
-          <span className={`flex items-center gap-0.5 rounded-full px-2 py-0.5
+          <span className={`shrink-0 flex items-center gap-0.5 rounded-full px-1.5 py-0.5
                             text-xs font-semibold
                             ${trend >= 0 ? 'bg-emerald-950/60 text-emerald-400' : 'bg-red-950/60 text-red-400'}`}>
-            {trend >= 0 ? '▲' : '▼'} {Math.abs(trend)}%
+            {trend >= 0 ? '▲' : '▼'}{Math.abs(trend)}%
           </span>
         )}
       </div>
@@ -182,13 +182,14 @@ function EndpointRow({ ep, index, sessionId }) {
       </span>
 
       {/* Path */}
-      <code className="flex-1 truncate text-xs text-gray-300
+      <code className="min-w-0 flex-1 break-all text-xs text-gray-300
                        group-hover:text-gray-100 transition-colors">
-        /api/mock/{sessionId?.slice(0, 8)}…/{ep.slug}
+        <span className="hidden sm:inline">/api/mock/{sessionId?.slice(0, 8)}…/</span>
+        {ep.slug}
       </code>
 
-      {/* Description */}
-      <span className="hidden sm:block truncate max-w-[180px] text-xs text-gray-600">
+      {/* Description — hidden on mobile to avoid overflow */}
+      <span className="hidden lg:block shrink-0 truncate max-w-[160px] text-xs text-gray-600">
         {ep.description}
       </span>
 
@@ -218,7 +219,7 @@ function LogRow({ entry, index }) {
   const isNew = index === 0;
   return (
     <div
-      className={`flex items-center gap-3 rounded-lg px-3 py-2
+      className={`flex items-center gap-2 rounded-lg px-3 py-2
                   transition-all duration-300 animate-fade-in
                   ${isNew
                     ? 'border border-brand-800/40 bg-brand-950/20'
@@ -231,28 +232,28 @@ function LogRow({ entry, index }) {
                         ${isNew ? 'animate-pulse-ring' : ''}`} />
 
       {/* Method */}
-      <span className={`shrink-0 font-mono text-xs font-bold ${meta.text}`}>
+      <span className={`shrink-0 w-12 font-mono text-xs font-bold ${meta.text}`}>
         {entry.method}
       </span>
 
-      {/* Slug */}
-      <code className="flex-1 truncate font-mono text-xs text-gray-400">
+      {/* Slug — flex-1 with break-all so long slugs don't push other columns */}
+      <code className="min-w-0 flex-1 truncate font-mono text-xs text-gray-400">
         /{entry.slug}
       </code>
 
       {/* Status */}
-      <span className={`shrink-0 font-mono text-xs font-bold tabular-nums
+      <span className={`shrink-0 w-10 font-mono text-xs font-bold tabular-nums
                         ${statusColor(entry.status)}`}>
         {entry.status ?? 'ERR'}
       </span>
 
       {/* Latency */}
-      <span className="shrink-0 font-mono text-xs tabular-nums text-gray-600">
+      <span className="shrink-0 w-12 font-mono text-xs tabular-nums text-gray-600">
         {entry.latency != null ? `${entry.latency}ms` : '—'}
       </span>
 
-      {/* Timestamp */}
-      <span className="hidden sm:block shrink-0 text-xs text-gray-700">
+      {/* Timestamp — hidden on narrow screens */}
+      <span className="hidden shrink-0 w-16 text-right text-xs text-gray-700 sm:block">
         {relativeTime(entry.ts)}
       </span>
     </div>
@@ -412,6 +413,7 @@ export default function DashboardPage() {
         </div>
 
         {/* ── Metric cards row ─────────────────────────────────────────── */}
+        {/* 2 cols on mobile → 4 cols on sm+ */}
         <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
           <MetricCard
             animDelay="0s"
@@ -480,8 +482,9 @@ export default function DashboardPage() {
           />
         </div>
 
-        {/* ── Main grid: collections + endpoint tree ────────────────────── */}
-        <div className="mb-6 grid gap-4 lg:grid-cols-[260px_1fr]">
+        {/* ── Main grid: collections sidebar + endpoint tree ───────────── */}
+        {/* Single column on mobile/tablet → side-by-side on lg+ */}
+        <div className="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-[240px_1fr]">
 
           {/* Collections sidebar */}
           <div className="flex flex-col gap-3">
@@ -603,10 +606,10 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Column labels */}
-          <div className="grid grid-cols-[16px_52px_1fr_44px_52px_72px]
-                          gap-3 border-b border-gray-800/40
-                          bg-gray-900/40 px-3 py-1.5">
+          {/* Column header — hidden on mobile (too narrow), visible sm+ */}
+          <div className="hidden border-b border-gray-800/40 bg-gray-900/40
+                          px-3 py-1.5 sm:grid
+                          sm:grid-cols-[16px_52px_1fr_44px_52px_72px] sm:gap-3">
             {['', 'METHOD', 'ROUTE', 'STATUS', 'TIME', 'WHEN'].map((h) => (
               <span key={h} className="text-xs font-semibold uppercase
                                        tracking-widest text-gray-700">

@@ -1,0 +1,40 @@
+services:
+  - type: web
+    name: mockflow-ai-backend
+    runtime: node
+    region: oregon          # free-tier region
+    plan: free
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: npm start  # runs "node server.js"
+
+    # process.env.PORT is injected automatically by Render
+    # All other vars must be set in the Render dashboard → Environment tab
+
+    envVars:
+      - key: NODE_ENV
+        value: production
+
+      # Set these in the Render dashboard — do NOT commit real values:
+      #
+      #   GEMINI_API_KEY        your Google AI Studio key
+      #   JWT_SECRET            random 64-char string
+      #   JWT_REFRESH_SECRET    random 64-char string
+      #   MONGO_URI             MongoDB Atlas connection string (optional)
+      #   CLIENT_ORIGIN         your Vercel frontend URL, e.g. https://mockflow-ai.vercel.app
+
+      - key: CLIENT_ORIGIN
+        sync: false          # marks it as a secret — set value in dashboard
+
+      - key: GEMINI_API_KEY
+        sync: false
+
+      - key: JWT_SECRET
+        sync: false
+
+      - key: JWT_REFRESH_SECRET
+        sync: false
+
+    healthCheckPath: /health
+
+    autoDeploy: true         # redeploys on every push to the linked branch

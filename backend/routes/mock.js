@@ -4,72 +4,139 @@ import { generateResponse } from '../services/DataGenerator.js';
 
 const router = Router();
 
+// ── Input validators ──────────────────────────────────────────────────────────
+
+/**
+ * UUID v4 pattern (case-insensitive).
+ * Rejects any sessionId that is not a well-formed UUID before touching the store,
+ * closing the fuzzing surface and preventing oversized Map key allocations.
+ */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/**
+ * Slug whitelist: lowercase alphanum + hyphens, 1–128 chars.
+ * Rejects path-traversal sequences (.., /), CRLF (\r\n), and excessively
+ * long inputs before any store lookup or header reflection.
+ */
+const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,127}$/;
+
+/**
+ * Validate and sanitise the session UUID.
+ * Returns the normalised (lowercase) UUID string, or null if invalid.
+ */
+function validateSessionId(raw) {
+  if (typeof raw !== 'string') return null;
+  const trimmed = raw.trim().toLowerCase();
+  return UUID_RE.test(trimmed) ? trimmed : null;
+}
+
+/**
+ * Validate and sanitise an endpoint slug.
+ * Returns the normalised (lowercase) slug string, or null if invalid.
+ */
+function validateSlug(raw) {
+  if (typeof raw !== 'string') return null;
+  const trimmed = raw.trim().toLowerCase();
+  return SLUG_RE.test(trimmed) ? trimmed : null;
+}
+
+// ── Dynamic mock handler ──────────────────────────────────────────────────────
+
 /**
  * Wildcard dynamic mock handler.
  *
  * Matches:  /api/mock/:sessionId/:endpointSlug
  * Methods:  GET, POST, PUT, PATCH, DELETE
  *
+ * Isolation guarantee
+ * ───────────────────
+ * Every lookup is keyed by BOTH sessionId AND slug. The SessionStore
+ * is a Map<sessionId, { endpoints: Map<slug, Definition> }>. A slug
+ * present in session A can never be served to a request carrying
+ * session B's UUID — the outer Map key (UUID) is the isolation boundary.
+ *
  * Resolution order:
- *  1. Look up the endpoint definition from SessionStore via MockResolver.resolve()
- *  2. If not found → 404 with structured error
- *  3. Generate a fake response using DataGenerator.generateResponse()
- *  4. Apply optional latency simulation (x-mockflow-delay header, max 5000ms)
- *  5. Return the mock payload with correct status + Content-Type
+ *  1. Validate sessionId format (UUID v4) — reject 400 on malformed input
+ *  2. Validate endpointSlug format — reject 400 on malformed input
+ *  3. Look up the session in SessionStore — reject 404 SESSION_NOT_FOUND if absent
+ *  4. Look up the slug within that session — reject 404 ENDPOINT_NOT_FOUND if absent
+ *  5. Apply optional latency simulation
+ *  6. Generate fake response via DataGenerator
+ *  7. Return response with sanitised, non-reflected headers
  */
 const handleMock = async (req, res, next) => {
   try {
-    const { sessionId, endpointSlug } = req.params;
     const method = req.method.toUpperCase();
 
-    // ── 1. Resolve endpoint definition ──────────────────────────────────────
+    // ── 1. Validate session UUID ─────────────────────────────────────────
+    const sessionId = validateSessionId(req.params.sessionId);
+    if (!sessionId) {
+      return res.status(400).json({
+        error: {
+          code:    'INVALID_SESSION_ID',
+          message: 'Session ID must be a valid UUID v4.',
+        },
+      });
+    }
+
+    // ── 2. Validate endpoint slug ────────────────────────────────────────
+    const endpointSlug = validateSlug(req.params.endpointSlug);
+    if (!endpointSlug) {
+      return res.status(400).json({
+        error: {
+          code:    'INVALID_SLUG',
+          message: 'Endpoint slug must be 1–128 lowercase alphanumeric characters or hyphens.',
+        },
+      });
+    }
+
+    // ── 3 & 4. Resolve endpoint (session-isolated lookup) ────────────────
     const definition = MockResolver.resolve(sessionId, endpointSlug);
 
     if (!definition) {
+      // Distinguish "session never existed / expired" from "slug not found".
+      // MockResolver.resolve() returns null for both; inspect the store directly
+      // to provide the most useful error code.
+      const sessionExists = MockResolver.sessionExists(sessionId);
+
       return res.status(404).json({
         error: {
-          code: 'ENDPOINT_NOT_FOUND',
-          message: `No mock endpoint found for session '${sessionId}' with slug '${endpointSlug}'.`,
+          code: sessionExists ? 'ENDPOINT_NOT_FOUND' : 'SESSION_NOT_FOUND',
+          message: sessionExists
+            ? `No endpoint '${endpointSlug}' found in session '${sessionId}'.`
+            : `Session '${sessionId}' does not exist or has expired. Generate a mock API first via POST /api/generate.`,
           hint: 'Generate a mock API first via POST /api/generate',
         },
       });
     }
 
-    // ── 2. Latency simulation ────────────────────────────────────────────────
+    // ── 5. Latency simulation ────────────────────────────────────────────
     const requestedDelay = parseInt(req.headers['x-mockflow-delay'] ?? '0', 10);
-    const delayMs = Math.min(
-      isNaN(requestedDelay) ? 0 : requestedDelay,
-      5000,  // hard cap: 5 seconds
-    );
-
-    // Also honour any per-endpoint configured delay
-    const endpointDelay = definition.delayMs ?? 0;
-    const totalDelay = Math.min(delayMs || endpointDelay, 5000);
+    const headerDelay    = !isNaN(requestedDelay) ? requestedDelay : 0;
+    const endpointDelay  = definition.delayMs ?? 0;
+    const totalDelay     = Math.min(Math.max(headerDelay, endpointDelay), 5000);
 
     if (totalDelay > 0) {
       await new Promise((resolve) => setTimeout(resolve, totalDelay));
     }
 
-    // ── 3. Generate fake response ────────────────────────────────────────────
-    //
-    // Query-string overrides:
-    //   ?count=N   → force array of N items
-    //   ?status=N  → override HTTP status code
-    const countParam = req.query.count ? parseInt(req.query.count, 10) : null;
-    const count = countParam && !isNaN(countParam) ? Math.min(countParam, 50) : null;
+    // ── 6. Generate fake response ────────────────────────────────────────
+    const countParam  = parseInt(req.query.count, 10);
+    const count       = !isNaN(countParam) && countParam > 0
+      ? Math.min(countParam, 50)
+      : null;
 
+    const statusParam = parseInt(req.query.status, 10);
     const { status, body } = generateResponse(definition, method, count);
+    const finalStatus = !isNaN(statusParam) && statusParam >= 100 && statusParam <= 599
+      ? statusParam
+      : status;
 
-    // Override status if caller explicitly requests it (useful for error testing)
-    const statusParam = req.query.status ? parseInt(req.query.status, 10) : null;
-    const finalStatus =
-      statusParam && statusParam >= 100 && statusParam <= 599
-        ? statusParam
-        : status;
-
-    // ── 4. Respond ───────────────────────────────────────────────────────────
-    res.setHeader('X-MockFlow-Session', sessionId);
-    res.setHeader('X-MockFlow-Slug', endpointSlug);
+    // ── 7. Respond ───────────────────────────────────────────────────────
+    // Header values are the validated (sanitised) versions — never raw user input.
+    // This prevents CRLF header-injection from a crafted URL.
+    res.setHeader('X-MockFlow-Session',   sessionId);    // validated UUID
+    res.setHeader('X-MockFlow-Slug',      endpointSlug); // validated slug
     res.setHeader('X-MockFlow-Generated', 'true');
 
     if (finalStatus === 204 || body === null) {

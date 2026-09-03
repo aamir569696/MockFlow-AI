@@ -5,6 +5,16 @@ export default {
     './src/**/*.{js,jsx,ts,tsx}',
   ],
   theme: {
+    screens: {
+      // Custom xs breakpoint for very small phones (360px)
+      xs:  '360px',
+      // Tailwind defaults preserved in order
+      sm:  '640px',
+      md:  '768px',
+      lg:  '1024px',
+      xl:  '1280px',
+      '2xl': '1536px',
+    },
     extend: {
       colors: {
         brand: {

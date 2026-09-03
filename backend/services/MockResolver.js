@@ -370,4 +370,16 @@ export const MockResolver = {
   resolve(sessionId, slug) {
     return SessionStore.getEndpoint(sessionId, slug);
   },
+
+  /**
+   * Check whether a session UUID is known to the SessionStore.
+   * Used by routes/mock.js to distinguish SESSION_NOT_FOUND from
+   * ENDPOINT_NOT_FOUND in 404 responses.
+   *
+   * @param {string} sessionId
+   * @returns {boolean}
+   */
+  sessionExists(sessionId) {
+    return SessionStore.has(sessionId);
+  },
 };

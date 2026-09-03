@@ -4,6 +4,7 @@ import PlaygroundPage from './pages/PlaygroundPage.jsx';
 import DashboardPage from './pages/DashboardPage.jsx';
 import NotFoundPage from './pages/NotFoundPage.jsx';
 import AuthModal from './components/auth/AuthModal.jsx';
+import SessionRehydrator from './components/SessionRehydrator.jsx';
 
 /**
  * App — root router.
@@ -17,7 +18,10 @@ import AuthModal from './components/auth/AuthModal.jsx';
 function App() {
   return (
     <>
-      {/* Global auth overlay — rendered here so it sits above all routes */}
+      {/* Silently re-registers backend session after page reload */}
+      <SessionRehydrator />
+
+      {/* Global auth overlay — rendered above all routes */}
       <AuthModal />
 
       <Routes>
