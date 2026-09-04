@@ -52,7 +52,7 @@ PUT  /api/mock/:sessionId/orders-update
 # ✨ Key Features
 
  🤖 *AI API Generation* — Generate APIs from natural-language descriptions.
-<br>
+
  🧠 *Smart Mock Data* — Realistic data using semantic field inference and JSON Schema types.
 
  🧪 *HTTP Playground* — Send live requests and inspect responses, headers, latency, and status.
@@ -113,37 +113,6 @@ Response + Custom Header Echo
 
 -
 
-# 🗺️ Architecture
-
-`text
-┌─────────────────────────────────────────────────────────┐
-│                     FRONTEND                            │
-│  React 18 · Zustand · Tailwind CSS · Vite              │
-│                                                         │
-│  PromptPanel → EndpointPreview → RequestRunner         │
-│                         ↓                               │
-│                 TelemetryDashboard                      │
-└───────────────────────┬─────────────────────────────────┘
-                        │ axios /api/*
-                        ▼
-┌─────────────────────────────────────────────────────────┐
-│                     EXPRESS SERVER                     │
-│                                                         │
-│  Helmet → CORS → JSON → Morgan → Rate Limiter          │
-│                        ↓                                │
-│              POST /api/generate                        │
-│                   ┌────┴────┐                          │
-│                   ▼         ▼                          │
-│                Gemini    Fallback                      │
-│                   └────┬────┘                          │
-│                        ▼                               │
-│                  SessionStore                          │
-│                        ↓                               │
-│             /api/mock/:sessionId/:slug                │
-│                        ↓                               │
-│              Mock Resolver + Generator                 │
-└─────────────────────────────────────────────────────────┘
-`
 
 -
 
