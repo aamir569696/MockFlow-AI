@@ -1,271 +1,254 @@
-# MockFlow AI
+# ⚡ MockFlow AI
 
-> **Generate realistic mock REST APIs from a plain-English prompt — instantly, with zero sign-up.**
+# Autonomous API Sandbox Grid
 
-Powered by Google Gemini AI · Built with React + Express · Deployed on Vercel + Render
+*Generate production-ready mock REST APIs from plain English in seconds.*
 
----
+MockFlow AI turns a natural-language API idea into a *live, testable mock REST API*—with realistic data, an interactive HTTP playground, and exportable API definitions.
 
-## Live Demo
+> *Describe → Generate → Test → Export*
 
-| Service  | URL |
-|----------|-----|
-| Frontend | `https://mockflow-ai.vercel.app` *(replace after deploy)* |
-| Backend  | `https://mockflow-ai-backend.onrender.com` *(replace after deploy)* |
-| Health   | `https://mockflow-ai-backend.onrender.com/health` |
+-
 
----
+# 🎯 Problem
 
-## Features
+Building a mock API usually requires manually creating resources, routes, schemas, test data, and a mock server. This slows down *frontend development, API testing, rapid prototyping, and hackathon development*.
 
-- **Playground-First** — generate live mock endpoints as a guest, no account required
-- **Gemini AI** — natural-language prompt → full JSON schema + CRUD endpoints in < 5 s
-- **Local fallback engine** — works offline if Gemini is unavailable (zero-cost path)
-- **Dynamic mock resolver** — any HTTP verb on `/api/mock/:sessionId/:slug` returns realistic fake data
-- **Live Telemetry Dashboard** — status badge, latency, content-type, payload size per request
-- **Export Code Bundle** — Postman v2.1 collection + Schema SDK JSON download
-- **Analytics Dashboard** — endpoint tree, sparkline charts, live network log
+# 💡 Solution
 
----
+MockFlow AI lets developers describe an API in plain English and automatically generates structured resources, endpoints, schemas, and realistic mock data.
 
-## Project Structure
+It combines *AI generation with a local fallback engine*, so the application can continue working even when AI generation is unavailable.
 
-```
+-
+
+# 🚀 How It Works
+
+`text
+Plain-English Prompt
+        ↓
+AI / Local Fallback
+        ↓
+Structured API Schema
+        ↓
+Live Mock Endpoints
+        ↓
+HTTP Playground
+        ↓
+Postman / Schema Export
+`
+
+Example generated routes:
+
+`http
+GET  /api/mock/:sessionId/products
+POST /api/mock/:sessionId/products
+GET  /api/mock/:sessionId/orders
+PUT  /api/mock/:sessionId/orders-update
+`
+
+-
+
+# ✨ Key Features
+
+ 🤖 *AI API Generation* — Generate APIs from natural-language descriptions.
+ 🧠 *Smart Mock Data* — Realistic data using semantic field inference and JSON Schema types.
+ 🧪 *HTTP Playground* — Send live requests and inspect responses, headers, latency, and status.
+ 🔀 *Payload `deepMerge`* — Merge generated data with incoming request bodies.
+ 🌐 *CORS Gateway* — Centralized cross-origin API handling.
+ 💾 *Persistent State* — Playground state survives browser refreshes through LocalStorage.
+ 🔄 *Local Fallback Engine* — Continue generating APIs without Gemini.
+ 📦 *Developer Exports* — Export Postman v2.1 collections and Schema SDK JSON.
+ 🔐 *Security* — Helmet, CORS, rate limiting, UUID validation, and session isolation.
+ 📱 *Responsive UI* — Designed for desktop and mobile use.
+
+-
+
+# ⭐ Technical Highlights
+
+# AI + Fallback Architecture
+
+`text
+              API Description
+                    │
+                    ▼
+             Generation Layer
+              ┌─────┴─────┐
+              ▼           ▼
+           Gemini      Local Engine
+              │           │
+              └─────┬─────┘
+                    ▼
+             Structured API
+                    ↓
+           Live Endpoints
+`
+
+The local engine uses *regex-based noun extraction, `FIELD_VOCAB`, 30 resource templates, and 40 field definitions* to provide a zero-cost fallback generation path.
+
+# Request Processing
+
+`text
+Request
+  ↓
+UUID + Slug Validation
+  ↓
+MockResolver
+  ↓
+DataGenerator
+  ↓
+deepMerge(Request Body)
+  ↓
+Response + Custom Header Echo
+`
+
+-
+
+# 🗺️ Architecture
+
+`text
+┌─────────────────────────────────────────────────────────┐
+│                     FRONTEND                            │
+│  React 18 · Zustand · Tailwind CSS · Vite              │
+│                                                         │
+│  PromptPanel → EndpointPreview → RequestRunner         │
+│                         ↓                               │
+│                 TelemetryDashboard                      │
+└───────────────────────┬─────────────────────────────────┘
+                        │ axios /api/*
+                        ▼
+┌─────────────────────────────────────────────────────────┐
+│                     EXPRESS SERVER                     │
+│                                                         │
+│  Helmet → CORS → JSON → Morgan → Rate Limiter          │
+│                        ↓                                │
+│              POST /api/generate                        │
+│                   ┌────┴────┐                          │
+│                   ▼         ▼                          │
+│                Gemini    Fallback                      │
+│                   └────┬────┘                          │
+│                        ▼                               │
+│                  SessionStore                          │
+│                        ↓                               │
+│             /api/mock/:sessionId/:slug                │
+│                        ↓                               │
+│              Mock Resolver + Generator                 │
+└─────────────────────────────────────────────────────────┘
+`
+
+-
+
+# 🧰 Tech Stack
+
+| Technology   |   Version | Purpose            |
+| ------------ | --------: | ------------------ |
+| React        |      18.3 | Frontend UI        |
+| Express.js   |      4.19 | REST API & routing |
+| Zustand      |       4.5 | State management   |
+| Gemini       | 3.6-flash | AI API generation  |
+| Tailwind CSS |         — | UI styling         |
+| Vite         |         — | Frontend tooling   |
+| Node.js      |         — | Backend runtime    |
+
+-
+
+# 📊 Project Stats
+
+| Frontend                 | Backend               |
+| ------------------------ | --------------------- |
+| 22 source files          | 14 source files       |
+| 18 React components      | 15 route handlers     |
+| 3 Zustand stores         | 5 middleware layers   |
+| 336 KB production bundle | 30 resource templates |
+| 58 KB CSS bundle         | 40 field definitions  |
+
+-
+
+# 📁 Project Structure
+
+`text
 mockflow-ai/
-├── backend/                  Express.js API server
-│   ├── server.js             Entry point — process.env.PORT || 5000
-│   ├── routes/               auth · generate · endpoints · mock
-│   ├── middleware/           guestSession · auth · errorHandler
-│   ├── services/             MockResolver (Gemini) · SessionStore · DataGenerator
-│   └── models/               User · Endpoint (Mongoose)
-├── frontend/                 React 18 + Vite + Tailwind CSS
-│   ├── vercel.json           Vercel deployment config (SPA rewrites)
-│   ├── src/
-│   │   ├── pages/            Landing · Playground · Dashboard
-│   │   ├── components/       PromptPanel · SchemaEditor · EndpointPreview
-│   │   │                     RequestRunner · ExportDropdown · AuthModal
-│   │   ├── store/            playgroundStore · authStore (Zustand)
-│   │   └── services/         mockService · authService · endpointService
-├── render.yaml               Render.com backend deployment config
+├── .kiro/
+├── backend/
+│   ├── server.js
+│   ├── routes/
+│   ├── middleware/
+│   ├── services/
+│   └── models/
+├── frontend/
+│   ├── vercel.json
+│   └── src/
+│       ├── pages/
+│       ├── components/
+│       ├── store/
+│       └── services/
+├── render.yaml
 ├── .gitignore
 └── README.md
-```
+`
 
----
+--
 
-## Local Development
-
-### Prerequisites
-
-- Node.js ≥ 18
-- npm ≥ 9
-- A free [Google AI Studio](https://aistudio.google.com/app/apikey) API key
-
-### 1 — Clone & install
-
-```bash
-git clone https://github.com/<your-username>/mockflow-ai.git
-cd mockflow-ai
+## 🚀 Run Locally
 
 # Backend
-cd backend && npm install
 
-# Frontend
-cd ../frontend && npm install
-```
+`bash
+git clone https://github.com/<you>/mockflow-ai.git
+cd mockflow-ai/backend
+cp .env.example .env
+npm install
+npm run dev
+`
 
-### 2 — Configure environment
+### Frontend
 
-```bash
-# backend/.env  (copy from .env.example)
-cp backend/.env.example backend/.env
-```
+`bash
+cd ../frontend
+npm install
+npm run dev
+`
 
-Open `backend/.env` and fill in:
+> **No Gemini API key?** The local fallback engine can still run the application.
 
-```env
-PORT=5000
-NODE_ENV=development
-GEMINI_API_KEY=AIza...          # from aistudio.google.com
-CLIENT_ORIGIN=http://localhost:5173
-JWT_SECRET=replace_with_random_64_char_string
-JWT_REFRESH_SECRET=replace_with_another_random_64_char_string
-```
+--
 
-### 3 — Run
+# 🌐 Deployment
 
-```bash
-# Terminal 1 — backend (http://localhost:5000)
-cd backend && npm run dev
+| Platform   | Purpose             |
+| ---------- | ------------------- |
+| *GitHub* | Source repository   |
+| *Vercel* | Frontend deployment |
+| *Render* | Backend deployment  |
 
-# Terminal 2 — frontend (http://localhost:5173)
-cd frontend && npm run dev
-```
+Environment variables:
 
-Open **http://localhost:5173** — the Playground loads immediately with no login required.
-
----
-
-## Deployment
-
-### Frontend → Vercel (free)
-
-**One-click deploy:**
-
-1. Push the repo to GitHub
-2. Go to [vercel.com](https://vercel.com) → **New Project** → import the repo
-3. Set **Root Directory** to `frontend`
-4. Vercel auto-detects Vite. Build settings are in `frontend/vercel.json`:
-   - **Build command:** `npm run build`
-   - **Output directory:** `dist`
-5. Add one **Environment Variable** in the Vercel dashboard:
-
-   | Key | Value |
-   |-----|-------|
-   | `VITE_API_BASE_URL` | your Render backend URL (e.g. `https://mockflow-ai-backend.onrender.com`) |
-
-6. Click **Deploy**
-
-The `vercel.json` catch-all rewrite (`/* → /index.html`) ensures React Router works on all paths.
+`text
+GEMINI_API_KEY
+CLIENT_ORIGIN
+VITE_API_BASE_URL
+`
 
 ---
 
-### Backend → Render (free tier)
+# 🏆 Hackathon Value
 
-**Via render.yaml (Infrastructure as Code):**
+MockFlow AI reduces the time between an *API idea and a working development environment*.
 
-1. Go to [render.com](https://render.com) → **New** → **Blueprint**
-2. Connect your GitHub repo — Render reads `render.yaml` automatically
-3. Set the following **Secret Environment Variables** in the Render dashboard
-   (Dashboard → your service → **Environment**):
+It enables developers to prototype, test, and demonstrate APIs without first building a complete backend.
 
-   | Variable | Description |
-   |----------|-------------|
-   | `GEMINI_API_KEY` | Google AI Studio key |
-   | `CLIENT_ORIGIN` | Your Vercel frontend URL, e.g. `https://mockflow-ai.vercel.app` |
-   | `JWT_SECRET` | Random 64-char secret |
-   | `JWT_REFRESH_SECRET` | Random 64-char secret |
-   | `MONGO_URI` | MongoDB Atlas URI *(optional — only needed for saved endpoints)* |
-
-4. Render injects `PORT` automatically — `server.js` uses `process.env.PORT || 5000`
-5. Click **Apply** — first deploy takes ~2 min
-
-**Health check:** Render pings `/health` every 30 s. The endpoint returns:
-```json
-{ "status": "ok", "timestamp": "2026-09-02T12:00:00.000Z" }
-```
-
-**Manual deploy (without render.yaml):**
-
-1. New Web Service → connect repo
-2. **Root Directory:** `backend`
-3. **Build Command:** `npm install`
-4. **Start Command:** `npm start`
-5. **Runtime:** Node
-6. **Plan:** Free
-7. Add environment variables as above
+*Built for National Hackathon 2026.*
 
 ---
 
-### Post-Deploy: Wire frontend → backend
+# 📜 License
 
-After both services are live, update one variable on each platform:
+*MIT License*
 
-**Render** → `CLIENT_ORIGIN` = `https://your-app.vercel.app`
+<div align="center">
 
-**Vercel** → `VITE_API_BASE_URL` = `https://your-backend.onrender.com`
+# ⚡ MockFlow AI
 
-Then update `frontend/src/services/mockService.js` line 5 to read the env var in production:
+*The fastest path from API idea to live endpoint.*
 
-```js
-const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL
-    ? `${import.meta.env.VITE_API_BASE_URL}/api`
-    : '/api',
-});
-```
-
-Redeploy the frontend after this change.
-
----
-
-## API Reference
-
-### `POST /api/generate`
-Guest-accessible. Calls Gemini AI (or local fallback) to generate a schema and register mock endpoints.
-
-```bash
-curl -X POST https://<backend>/api/generate \
-  -H "Content-Type: application/json" \
-  -d '{"prompt": "A blog API with posts, authors, and comments"}'
-```
-
-**Response:**
-```json
-{
-  "sessionId": "uuid-v4",
-  "apiName": "Blog API",
-  "description": "...",
-  "schema": { "Post": { "type": "object", "properties": {} } },
-  "endpoints": [
-    { "slug": "posts", "method": "GET", "path": "/api/mock/:sessionId/posts" }
-  ]
-}
-```
-
-### `GET|POST|PUT|PATCH|DELETE /api/mock/:sessionId/:slug`
-Dynamic mock handler. Returns realistic fake data matching the generated schema.
-
-```bash
-curl https://<backend>/api/mock/<sessionId>/posts
-curl https://<backend>/api/mock/<sessionId>/posts?count=5
-curl https://<backend>/api/mock/<sessionId>/posts?status=404
-curl -H "x-mockflow-delay: 300" https://<backend>/api/mock/<sessionId>/posts
-```
-
----
-
-## Environment Variables Reference
-
-### Backend (`backend/.env`)
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `PORT` | No | `5000` | Server port — injected by Render automatically |
-| `NODE_ENV` | No | `development` | Set to `production` on Render |
-| `GEMINI_API_KEY` | Yes* | — | Google AI Studio key. If absent, local fallback activates |
-| `CLIENT_ORIGIN` | Yes (prod) | `http://localhost:5173` | Comma-separated allowed CORS origins |
-| `JWT_SECRET` | Yes (prod) | — | JWT signing secret (64+ chars) |
-| `JWT_REFRESH_SECRET` | Yes (prod) | — | JWT refresh secret (64+ chars) |
-| `MONGO_URI` | No | — | MongoDB Atlas URI for persistent saved endpoints |
-
-### Frontend (`frontend/.env`)
-
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `VITE_API_BASE_URL` | No | Backend base URL for production. Omit for local dev (Vite proxy handles it) |
-
----
-
-## Tech Stack
-
-| Layer | Technology | Version |
-|-------|-----------|---------|
-| Frontend framework | React | 18.3 |
-| Build tool | Vite | 5.3 |
-| Styling | Tailwind CSS | 3.4 |
-| State management | Zustand | 4.5 |
-| HTTP client | Axios | 1.7 |
-| Client routing | React Router | 6.24 |
-| Backend framework | Express.js | 4.19 |
-| AI generation | Google Gemini | 2.5-flash / 3.6-flash |
-| Database (optional) | MongoDB + Mongoose | 8.4 |
-| Auth | JWT (jsonwebtoken) | 9.0 |
-| Frontend hosting | Vercel | free tier |
-| Backend hosting | Render | free tier |
-
----
-
-## License
-
-MIT — built for the MockFlow AI hackathon submission.
+</div>
