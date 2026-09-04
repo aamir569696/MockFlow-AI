@@ -52,14 +52,23 @@ PUT  /api/mock/:sessionId/orders-update
 # ✨ Key Features
 
  🤖 *AI API Generation* — Generate APIs from natural-language descriptions.
+<br>
  🧠 *Smart Mock Data* — Realistic data using semantic field inference and JSON Schema types.
+
  🧪 *HTTP Playground* — Send live requests and inspect responses, headers, latency, and status.
+
  🔀 *Payload `deepMerge`* — Merge generated data with incoming request bodies.
+
  🌐 *CORS Gateway* — Centralized cross-origin API handling.
+
  💾 *Persistent State* — Playground state survives browser refreshes through LocalStorage.
+
  🔄 *Local Fallback Engine* — Continue generating APIs without Gemini.
+
  📦 *Developer Exports* — Export Postman v2.1 collections and Schema SDK JSON.
+
  🔐 *Security* — Helmet, CORS, rate limiting, UUID validation, and session isolation.
+
  📱 *Responsive UI* — Designed for desktop and mobile use.
 
 -
