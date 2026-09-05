@@ -4,37 +4,43 @@
  * Isolation model
  * ───────────────
  * The store is a Map<sessionId, Session> where each Session owns its own
- * Map<slug, MockDefinition>. Every public method takes a sessionId as its
- * first argument and performs a strict key lookup — there is no fallback,
- * no fuzzy match, and no cross-session access path.
+ * Map<slug, MockDefinition> for endpoint definitions AND a separate
+ * Map<slug, object[]> for stateful collection arrays.
  *
- * Concurrent requests for different session UUIDs therefore operate on
- * completely independent Map entries. JavaScript's single-threaded event
- * loop means there is no race condition between reads and writes to the
- * same session either — only one microtask runs at a time.
+ * Every public method takes a sessionId as its first argument and performs
+ * a strict key lookup — there is no fallback, no fuzzy match, and no
+ * cross-session access path.
+ *
+ * Stateful Collection Engine
+ * ──────────────────────────
+ * For endpoints registered with isCollection: true, the store maintains a
+ * live array of items keyed by slug.  GET reads it, POST appends to it,
+ * DELETE splices from it.  The array is seeded with DataGenerator output on
+ * first access so it always has realistic data immediately.
  *
  * Keys:   sessionId (UUID v4, pre-validated by routes/mock.js)
- * Values: { endpoints: Map<slug, MockDefinition>, createdAt, lastAccessedAt }
+ * Values: {
+ *   endpoints:   Map<slug, MockDefinition>,
+ *   collections: Map<slug, object[]>,       ← stateful item arrays
+ *   createdAt:   number,
+ *   lastAccessedAt: number
+ * }
  *
  * Sessions are evicted after GUEST_SESSION_TTL_MS of inactivity.
  */
 
+import { randomUUID } from 'crypto';
+
 const GUEST_SESSION_TTL_MS   = 60 * 60 * 1000;  // 60 minutes
 const CLEANUP_INTERVAL_MS    = 15 * 60 * 1000;  // 15 minutes
 
-/** @type {Map<string, { endpoints: Map<string, object>, createdAt: number, lastAccessedAt: number }>} */
+/** @type {Map<string, { endpoints: Map<string, object>, collections: Map<string, object[]>, createdAt: number, lastAccessedAt: number }>} */
 const store = new Map();
 
 export const SessionStore = {
 
   /**
-   * Returns true if the session key exists in the store (regardless of
-   * whether it has any endpoints).
-   * Used by routes/mock.js to distinguish SESSION_NOT_FOUND from
-   * ENDPOINT_NOT_FOUND without coupling the route to store internals.
-   *
-   * @param {string} sessionId
-   * @returns {boolean}
+   * Returns true if the session key exists in the store.
    */
   has(sessionId) {
     return store.has(sessionId);
@@ -43,14 +49,12 @@ export const SessionStore = {
   /**
    * Get or create a session entry.
    * Updates lastAccessedAt on every access to reset the TTL.
-   *
-   * @param {string} sessionId
-   * @returns {{ endpoints: Map<string, object>, createdAt: number, lastAccessedAt: number }}
    */
   getOrCreate(sessionId) {
     if (!store.has(sessionId)) {
       store.set(sessionId, {
         endpoints:       new Map(),
+        collections:     new Map(),   // ← stateful collection arrays
         createdAt:       Date.now(),
         lastAccessedAt:  Date.now(),
       });
@@ -62,10 +66,6 @@ export const SessionStore = {
 
   /**
    * Store a mock definition under a session + slug key.
-   *
-   * @param {string} sessionId
-   * @param {string} slug
-   * @param {object} definition
    */
   setEndpoint(sessionId, slug, definition) {
     const session = this.getOrCreate(sessionId);
@@ -74,36 +74,96 @@ export const SessionStore = {
 
   /**
    * Retrieve a mock definition by session + slug.
-   *
-   * Isolation guarantee: the lookup first fetches the session by UUID.
-   * Only if that exact UUID exists in the store is the slug sub-lookup
-   * performed. A slug that happens to exist in another session is never
-   * reachable from this call because the outer Map keys are disjoint.
-   *
-   * Returns null (never throws) when:
-   *   - sessionId is not in the store (session never existed or was evicted)
-   *   - slug is not in that session's endpoint map
-   *
-   * lastAccessedAt is updated ONLY when the session exists — we do NOT
-   * create or mutate any entry for an unknown sessionId.
-   *
-   * @param {string} sessionId
-   * @param {string} slug
-   * @returns {object|null}
+   * Returns null when session or slug not found — never throws.
    */
   getEndpoint(sessionId, slug) {
     const session = store.get(sessionId);
-    if (!session) return null;               // session not found — no mutation
-
-    session.lastAccessedAt = Date.now();     // touch TTL only for real sessions
+    if (!session) return null;
+    session.lastAccessedAt = Date.now();
     return session.endpoints.get(slug) ?? null;
   },
 
+  // ── Stateful Collection API ─────────────────────────────────────────────
+
+  /**
+   * Retrieve the live item array for a collection endpoint.
+   * Returns null if the session or slug is unknown.
+   *
+   * @param {string} sessionId
+   * @param {string} slug
+   * @returns {object[]|null}
+   */
+  getCollection(sessionId, slug) {
+    const session = store.get(sessionId);
+    if (!session) return null;
+    session.lastAccessedAt = Date.now();
+    return session.collections.get(slug) ?? null;
+  },
+
+  /**
+   * Seed a collection with an initial array (called on first GET).
+   * No-op if the collection already exists — prevents re-seeding on repeat GETs.
+   *
+   * @param {string} sessionId
+   * @param {string} slug
+   * @param {object[]} items
+   */
+  seedCollection(sessionId, slug, items) {
+    const session = this.getOrCreate(sessionId);
+    if (!session.collections.has(slug)) {
+      session.collections.set(slug, items);
+    }
+  },
+
+  /**
+   * Append a new item to a collection.
+   * Assigns a crypto.randomUUID() `id` if the item does not already have one.
+   * Creates the collection array if it does not yet exist.
+   *
+   * @param {string} sessionId
+   * @param {string} slug
+   * @param {object} item   — req.body merged with generated mock fields
+   * @returns {object}      — the stored item (with `id` guaranteed)
+   */
+  appendToCollection(sessionId, slug, item) {
+    const session = this.getOrCreate(sessionId);
+    if (!session.collections.has(slug)) {
+      session.collections.set(slug, []);
+    }
+    const record = {
+      id: randomUUID(),   // always a fresh cryptographic UUID
+      ...item,            // user-supplied fields override generated ones
+    };
+    session.collections.get(slug).push(record);
+    session.lastAccessedAt = Date.now();
+    return record;
+  },
+
+  /**
+   * Delete an item from a collection by its `id` field.
+   * Returns true if an item was found and removed, false if not found.
+   *
+   * @param {string} sessionId
+   * @param {string} slug
+   * @param {string} itemId   — the `id` value to match
+   * @returns {boolean}
+   */
+  deleteFromCollection(sessionId, slug, itemId) {
+    const session = store.get(sessionId);
+    if (!session) return false;
+    const arr = session.collections.get(slug);
+    if (!arr) return false;
+    const before = arr.length;
+    const filtered = arr.filter(item => String(item.id) !== String(itemId));
+    session.collections.set(slug, filtered);
+    session.lastAccessedAt = Date.now();
+    return filtered.length < before;
+  },
+
+  // ── Housekeeping ────────────────────────────────────────────────────────
+
   /**
    * Return the number of active sessions currently in memory.
-   * Useful for health-check or monitoring endpoints.
-   *
-   * @returns {number}
    */
   size() {
     return store.size;
@@ -111,22 +171,16 @@ export const SessionStore = {
 
   /**
    * Evict sessions that have been idle longer than GUEST_SESSION_TTL_MS.
-   *
-   * Node.js guarantees that deleting a Map key during a for-of iteration
-   * over the same Map is safe — the iteration is based on insertion order
-   * and deletions do not affect entries not yet visited.
    */
   purgeExpired() {
-    const now      = Date.now();
-    let   evicted  = 0;
-
+    const now     = Date.now();
+    let evicted   = 0;
     for (const [id, session] of store.entries()) {
       if (now - session.lastAccessedAt > GUEST_SESSION_TTL_MS) {
         store.delete(id);
         evicted++;
       }
     }
-
     if (evicted > 0) {
       console.info(`[SessionStore] Evicted ${evicted} expired session(s). Active: ${store.size}`);
     }

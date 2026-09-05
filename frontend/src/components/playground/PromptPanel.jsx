@@ -57,7 +57,10 @@ const MAX_CHARS = 1000;
 
 export default function PromptPanel() {
   const [localPrompt, setLocalPrompt] = useState('');
-  const { isGenerating, generateError, generate, apiName, apiDescription } =
+  const [isPurging,   setIsPurging]   = useState(false);
+  const [purgeConfirm, setPurgeConfirm] = useState(false);
+
+  const { isGenerating, generateError, generate, apiName, apiDescription, purgeWorkspace } =
     usePlaygroundStore();
 
   const charCount  = localPrompt.length;
@@ -248,6 +251,71 @@ export default function PromptPanel() {
           <div className="skeleton h-3 w-5/6 rounded" />
         </div>
       )}
+
+      {/* ── Purge Workspace ──────────────────────────────────────────────── */}
+      {/* Separated by a thin divider — clearly a destructive secondary action */}
+      <div className="flex items-center gap-2 pt-1">
+        <span className="h-px flex-1 bg-gray-800/70" />
+        <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-700">
+          danger zone
+        </span>
+        <span className="h-px flex-1 bg-gray-800/70" />
+      </div>
+
+      <button
+        type="button"
+        disabled={isGenerating || isPurging}
+        onClick={async () => {
+          if (!purgeConfirm) {
+            // First click: arm the button — auto-disarm after 3 s
+            setPurgeConfirm(true);
+            setTimeout(() => setPurgeConfirm(false), 3000);
+            return;
+          }
+          // Second click within 3 s: execute purge
+          setPurgeConfirm(false);
+          setIsPurging(true);
+          setLocalPrompt('');           // clear local textarea too
+          try { await purgeWorkspace(); } finally { setIsPurging(false); }
+        }}
+        className={`group flex w-full items-center justify-center gap-2 rounded-xl
+                    border px-4 py-2.5 text-xs font-semibold
+                    transition-all duration-200
+                    focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500
+                    disabled:cursor-not-allowed disabled:opacity-40
+                    ${purgeConfirm
+                      ? 'border-red-700/70 bg-red-950/50 text-red-300 ring-1 ring-red-700/40 animate-pulse'
+                      : 'border-gray-700/60 bg-gray-800/30 text-gray-500 hover:border-red-800/50 hover:bg-red-950/20 hover:text-red-400'
+                    }`}
+        aria-label={purgeConfirm ? 'Confirm workspace purge' : 'Purge workspace'}
+        title={purgeConfirm ? 'Click again to confirm — this cannot be undone' : 'Wipe all state and start with a fresh session UUID'}
+      >
+        {isPurging ? (
+          <>
+            <svg className="h-3.5 w-3.5 animate-spin-slow" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10"
+                      stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor"
+                    d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+            </svg>
+            Purging…
+          </>
+        ) : purgeConfirm ? (
+          <>
+            <svg className="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24"
+                 stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round"
+                    d="M12 9v2m0 4h.01M12 3a9 9 0 100 18A9 9 0 0012 3z" />
+            </svg>
+            Confirm purge? (click again)
+          </>
+        ) : (
+          <>
+            <span aria-hidden="true">🧹</span>
+            Purge Workspace
+          </>
+        )}
+      </button>
     </div>
   );
 }

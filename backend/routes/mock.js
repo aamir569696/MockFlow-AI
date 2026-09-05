@@ -1,6 +1,8 @@
 import { Router } from 'express';
+import { randomUUID } from 'crypto';
 import { MockResolver } from '../services/MockResolver.js';
-import { generateResponse, seedFromKey } from '../services/DataGenerator.js';
+import { generateResponse, generateValue, seedFromKey } from '../services/DataGenerator.js';
+import { SessionStore } from '../services/SessionStore.js';
 
 const router = Router();
 
@@ -178,7 +180,107 @@ const handleMock = async (req, res, next) => {
       await new Promise((resolve) => setTimeout(resolve, totalDelay));
     }
 
-    // ── 6. Generate fake response ────────────────────────────────────────
+    // ── 6. Stateful Collection Engine ────────────────────────────────────
+    //
+    // For endpoints flagged isCollection:true, we maintain a live mutable
+    // array keyed by the schema RESOURCE NAME (not the slug) so that all
+    // slugs for the same resource share one buffer:
+    //
+    //   GET  /users-list       → reads   collections["User"]
+    //   POST /create-user      → appends collections["User"]
+    //   DELETE /users-delete   → splices collections["User"]
+    //
+    // This ensures that items POSTed via one slug are immediately visible
+    // on the collection GET slug without any data loss.
+    //
+    // The resource key falls back to the slug when definition.resource is
+    // absent, preserving backward compatibility.
+    if (definition.isCollection) {
+      // Canonical key shared across all CRUD slugs for this resource
+      const collectionKey = (definition.resource ?? endpointSlug).toLowerCase();
+
+      // ── GET — serve persisted array ──────────────────────────────────────
+      if (method === 'GET') {
+        // Always read the live buffer first — never fall through to DataGenerator
+        let items = SessionStore.getCollection(sessionId, collectionKey);
+
+        if (!items) {
+          // First access — seed with 4 realistic items from DataGenerator
+          const schema    = definition.responseSchema ?? definition.schema ?? { type: 'object' };
+          const seedItems = Array.from({ length: 4 }, () => ({
+            id: randomUUID(),
+            ...generateValue(schema, '', 0),
+          }));
+          SessionStore.seedCollection(sessionId, collectionKey, seedItems);
+          items = SessionStore.getCollection(sessionId, collectionKey);
+        }
+
+        // Honour ?count override
+        const sliceCount = !isNaN(parseInt(req.query.count, 10))
+          ? Math.min(parseInt(req.query.count, 10), 50)
+          : null;
+
+        const responseItems = sliceCount !== null ? items.slice(0, sliceCount) : items;
+
+        res.setHeader('X-MockFlow-Session',      sessionId);
+        res.setHeader('X-MockFlow-Slug',         endpointSlug);
+        res.setHeader('X-MockFlow-Generated',    'true');
+        res.setHeader('X-MockFlow-Collection',   'stateful');
+        res.setHeader('X-MockFlow-Item-Count',   String(items.length));
+        return res.status(200).json(responseItems);
+      }
+
+      // ── POST — append new item ────────────────────────────────────────────
+      if (method === 'POST') {
+        const schema    = definition.responseSchema ?? definition.schema ?? { type: 'object' };
+        const generated = generateValue(schema, '', 0);
+        const merged    = deepMerge(generated, req.body ?? {});
+        const newItem   = SessionStore.appendToCollection(sessionId, collectionKey, merged);
+
+        res.setHeader('X-MockFlow-Session',    sessionId);
+        res.setHeader('X-MockFlow-Slug',       endpointSlug);
+        res.setHeader('X-MockFlow-Generated',  'true');
+        res.setHeader('X-MockFlow-Collection', 'stateful');
+        res.setHeader('X-MockFlow-Item-Id',    newItem.id);
+        return res.status(201).json(newItem);
+      }
+
+      // ── DELETE — remove item by id ────────────────────────────────────────
+      if (method === 'DELETE') {
+        // Accept id from: ?id=<uuid>  OR  req.body.id
+        const itemId = req.query.id ?? req.body?.id ?? null;
+
+        if (!itemId) {
+          return res.status(400).json({
+            error: {
+              code:    'MISSING_ITEM_ID',
+              message: 'Provide the item id via ?id=<uuid> query param or request body { id }.',
+            },
+          });
+        }
+
+        const removed = SessionStore.deleteFromCollection(sessionId, collectionKey, itemId);
+
+        res.setHeader('X-MockFlow-Session',    sessionId);
+        res.setHeader('X-MockFlow-Slug',       endpointSlug);
+        res.setHeader('X-MockFlow-Collection', 'stateful');
+
+        if (!removed) {
+          return res.status(404).json({
+            error: {
+              code:    'ITEM_NOT_FOUND',
+              message: `No item with id '${itemId}' found in collection '${collectionKey}'.`,
+            },
+          });
+        }
+
+        return res.status(204).end();
+      }
+
+      // PUT / PATCH on a collection — fall through to DataGenerator (single-item update)
+    }
+
+    // ── 7. Generate fake response (non-collection or PUT/PATCH) ──────────
     const countParam  = parseInt(req.query.count, 10);
     const count       = !isNaN(countParam) && countParam > 0
       ? Math.min(countParam, 50)

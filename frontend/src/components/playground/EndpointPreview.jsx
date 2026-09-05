@@ -418,16 +418,23 @@ export default function EndpointPreview() {
 
       {/* ── Endpoint accordion list ────────────────────────────────────── */}
       {!isGenerating && endpoints.length > 0 && (
-        <ul className="flex flex-col gap-1 animate-slide-up" role="list">
+        <ul className="flex flex-col gap-1" role="list">
           {endpoints.map((ep, index) => {
             const mockPath    = `/api/mock/${sessionId}/${ep.slug}`;
             const drawerKey   = `${index}-${ep.method}-${ep.slug}`;
             const isActive    = activeEndpoint?.slug === ep.slug && activeEndpoint?.method === ep.method;
             const isOpen      = openDrawer === drawerKey;
             const methodClass = METHOD_COLORS[ep.method] ?? 'method-GET';
+            // Staggered cascade: each card slides up with an increasing delay
+            // capped at 400 ms so the last card doesn't feel sluggish
+            const staggerDelay = `${Math.min(index * 45, 400)}ms`;
 
             return (
-              <li key={drawerKey} className="flex flex-col">
+              <li
+                key={drawerKey}
+                className="flex flex-col animate-slide-up"
+                style={{ animationDelay: staggerDelay }}
+              >
 
                 {/* ── Route card (accordion trigger) ───────────────── */}
                 <div

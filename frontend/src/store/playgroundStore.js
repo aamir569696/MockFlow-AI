@@ -114,6 +114,74 @@ export const usePlaygroundStore = create(
         }),
 
       /**
+       * purgeWorkspace — nuclear reset.
+       *
+       * 1. Wipe every MockFlow localStorage key (playground state, auth,
+       *    history, and the raw session UUID used by the axios interceptor).
+       * 2. Reset all Zustand state slices to their initial values.
+       * 3. Request GET /health — the guestSessionMiddleware issues a fresh
+       *    cryptographically random UUID v4 and echoes it as the
+       *    x-mockflow-session header.  The axios response interceptor in
+       *    mockService persists it to localStorage immediately, so the very
+       *    next generate/fetch hit carries the new session automatically.
+       * 4. Update the store's sessionId so the UI reflects the new session
+       *    without a page reload.
+       *
+       * No page refresh. No hard reload. Fully reactive.
+       */
+      purgeWorkspace: async () => {
+        // ── 1. Wipe all persisted MockFlow storage keys ──────────────────
+        const STORAGE_KEYS = ['mf_playground', 'mf_auth', 'mf_mock_history', 'mf_session_id'];
+        STORAGE_KEYS.forEach((k) => localStorage.removeItem(k));
+
+        // ── 2. Wipe zustand state (auth store too, via its own clear) ─────
+        // Import lazily to avoid circular-dependency at module level
+        const { useAuthStore }    = await import('./authStore.js');
+        const { useHistoryStore } = await import('./useHistoryStore.js');
+        useAuthStore.getState().clearAuth();
+        useHistoryStore.getState().clear();
+
+        // Reset playground to blank slate — no sessionId yet
+        set({
+          sessionId:       null,
+          prompt:          '',
+          apiName:         '',
+          apiDescription:  '',
+          generatedSchema: null,
+          endpoints:       [],
+          generateError:   null,
+          isGenerating:    false,
+          compileMeta:     null,
+          activeEndpoint:  null,
+          requestLog:      [],
+          runner:          { ...TRANSIENT_RUNNER },
+        });
+
+        // ── 3. Obtain a fresh session UUID from the backend ───────────────
+        // Fire GET /health — guestSessionMiddleware assigns a new UUID v4
+        // and the mockService response interceptor saves it to localStorage.
+        try {
+          const res = await mockService.runRequest({ method: 'GET', url: '/health' });
+          // The response interceptor already wrote the new UUID to localStorage.
+          // Read it back so in-memory state is also updated immediately.
+          const newSessionId = mockService.getSessionId();
+          if (newSessionId) {
+            set({ sessionId: newSessionId });
+            console.info(`[MockFlow] Purge complete — new session: ${newSessionId.slice(0, 8)}…`);
+          }
+        } catch {
+          // Server unreachable — generate a client-side UUID as fallback
+          const fallback = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+            const r = (Math.random() * 16) | 0;
+            return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+          });
+          mockService.setSessionId(fallback);
+          set({ sessionId: fallback });
+          console.warn('[MockFlow] Server unreachable — client-side UUID assigned:', fallback.slice(0, 8));
+        }
+      },
+
+      /**
        * Re-register endpoints on the backend after a page reload.
        *
        * The Express SessionStore is in-memory and resets on server restart.

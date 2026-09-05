@@ -201,73 +201,91 @@ function NavBar() {
 function SubHeader() {
   return (
     <div
-      className="relative border-b border-gray-800/40 px-4 py-3.5 sm:px-5"
+      className="relative border-b border-gray-800/40 px-4 py-5 sm:px-6"
       style={{
         background:
-          'linear-gradient(180deg, rgba(15,23,42,0.60) 0%, rgba(3,7,18,0.0) 100%)',
+          'linear-gradient(180deg, rgba(15,23,42,0.75) 0%, rgba(3,7,18,0.0) 100%)',
       }}
     >
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        {/* Typographic statement */}
-        <p
-          className="text-xs font-normal leading-relaxed tracking-wide"
-          style={{ color: 'rgba(148,163,184,0.65)' }} /* slate-400/65 */
-        >
-          Describe any REST API in plain English —{' '}
-          <span style={{ color: 'rgba(165,180,252,0.75)' }}>
-            live, hittable endpoints
-          </span>{' '}
-          in seconds.{' '}
-          <span style={{ color: 'rgba(100,116,139,0.60)' }}>
-            No sign-up required.
-          </span>
-        </p>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
 
-        {/* Floating engine badge */}
+        {/* ── Headline + subtitle block ──────────────────────────────────── */}
+        <div className="flex flex-col gap-1.5">
+          {/* Gradient headline */}
+          <h1
+            className="text-lg font-extrabold leading-tight tracking-tight sm:text-xl"
+            style={{
+              backgroundImage:
+                'linear-gradient(90deg, #e0e7ff 0%, #a4bcfd 30%, #8098fb 60%, #c084fc 100%)',
+              backgroundSize: '200% auto',
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+              backgroundClip: 'text',
+            }}
+          >
+            ⚡ Autonomous API Prototyping Grid
+          </h1>
+
+          {/* Subtitle */}
+          <p
+            className="max-w-xl text-xs leading-relaxed"
+            style={{ color: 'rgba(148,163,184,0.60)' }}
+          >
+            Type requirements in plain language —{' '}
+            <span style={{ color: 'rgba(165,180,252,0.75)' }}>
+              MockFlow automatically compiles, secures, and exposes
+            </span>{' '}
+            scalable live HTTP routes instantly.
+          </p>
+        </div>
+
+        {/* ── Gemini badge ───────────────────────────────────────────────── */}
         <div
-          className="flex shrink-0 items-center gap-1.5 self-start rounded-full
-                     px-2.5 py-1 sm:self-auto"
+          className="flex shrink-0 items-center gap-2 self-start rounded-full
+                     px-3 py-1.5 sm:self-auto"
           style={{
-            background: 'rgba(15,23,42,0.75)',
-            border: '1px solid rgba(99,102,241,0.22)',
-            backdropFilter: 'blur(10px)',
+            background:
+              'linear-gradient(135deg, rgba(15,23,42,0.90) 0%, rgba(30,27,75,0.85) 100%)',
+            border: '1px solid rgba(129,140,248,0.28)',
+            backdropFilter: 'blur(12px)',
+            boxShadow: '0 0 16px rgba(99,102,241,0.15)',
           }}
         >
-          {/* Status bead */}
-          <span className="relative flex h-1.5 w-1.5 shrink-0">
+          {/* Animated signal bead */}
+          <span className="relative flex h-2 w-2 shrink-0">
             <span
               className="absolute inline-flex h-full w-full rounded-full
                          bg-indigo-400/40 animate-ping"
-              style={{ animationDuration: '2s' }}
+              style={{ animationDuration: '1.8s' }}
             />
-            <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-indigo-400" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-indigo-400" />
           </span>
 
-          {/* Version */}
+          {/* Robot emoji */}
+          <span className="text-sm leading-none" aria-hidden="true">🤖</span>
+
+          {/* Badge text */}
           <span
-            className="font-mono text-[10px] font-semibold tracking-wide"
-            style={{ color: 'rgba(129,140,248,0.80)' }}
+            className="font-sans text-[11px] font-semibold tracking-wide whitespace-nowrap"
+            style={{ color: 'rgba(165,180,252,0.88)' }}
           >
-            v1.2.0
+            Gemini 2.5-Flash Active
           </span>
 
-          {/* Separator */}
-          <span style={{ color: 'rgba(71,85,105,0.60)' }} aria-hidden="true">•</span>
-
-          {/* Engine label */}
+          {/* Separator + zero cost note */}
+          <span style={{ color: 'rgba(71,85,105,0.50)' }} aria-hidden="true">•</span>
           <span
-            className="font-sans text-[10px] font-medium tracking-wide"
-            style={{ color: 'rgba(148,163,184,0.55)' }}
+            className="font-mono text-[10px] font-medium whitespace-nowrap"
+            style={{ color: 'rgba(52,211,153,0.70)' }}
           >
-            Ultra-Low Latency Engine
+            Zero-Cost Sync
           </span>
 
-          {/* Bolt accent */}
+          {/* Live bolt */}
           <svg
-            className="h-2.5 w-2.5 shrink-0"
-            fill="currentColor"
-            viewBox="0 0 24 24"
-            style={{ color: 'rgba(129,140,248,0.60)' }}
+            className="h-3 w-3 shrink-0"
+            fill="currentColor" viewBox="0 0 24 24"
+            style={{ color: 'rgba(129,140,248,0.65)' }}
             aria-hidden="true"
           >
             <path d="M13 10V3L4 14h7v7l9-11h-7z" />
@@ -340,7 +358,11 @@ export default function PlaygroundPage() {
           aria-labelledby="tab-input"
           className={`ambient-grid flex min-w-0 flex-col gap-4 p-4 sm:p-5
                       lg:w-[42%] lg:border-r lg:border-gray-800/40
+                      transition-shadow duration-300
                       ${activeTab === 'input' ? 'flex' : 'hidden lg:flex'}`}
+          style={{
+            boxShadow: 'inset 0 0 25px rgba(99,102,241,0.06), 0 0 25px rgba(99,102,241,0.06)',
+          }}
         >
           <div className="hidden items-center gap-2 lg:flex">
             <span className="h-px flex-1 bg-gray-800/60" />
@@ -360,7 +382,11 @@ export default function PlaygroundPage() {
           role="tabpanel"
           aria-labelledby="tab-output"
           className={`ambient-grid flex min-w-0 flex-1 flex-col gap-4 p-4 sm:p-5
+                      transition-shadow duration-300
                       ${activeTab === 'output' ? 'flex' : 'hidden lg:flex'}`}
+          style={{
+            boxShadow: 'inset 0 0 25px rgba(52,211,153,0.04), 0 0 25px rgba(99,102,241,0.05)',
+          }}
         >
           <div className="hidden items-center gap-2 lg:flex">
             <span className="h-px flex-1 bg-gray-800/60" />
