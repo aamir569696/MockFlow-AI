@@ -227,10 +227,18 @@ export function generateValue(schema = {}, key = '', depth = 0) {
   if (type === 'null')    return null;
 
   if (type === 'number' || type === 'integer') {
-    const min  = schema.minimum ?? 0;
-    const max  = schema.maximum ?? 10000;
+    // Constraints are authoritative — they clamp any semantic hint so that
+    // schemas with { minimum, maximum } always produce in-range values.
+    const hasMin = schema.minimum != null;
+    const hasMax = schema.maximum != null;
+    const min    = hasMin ? schema.minimum : 0;
+    const max    = hasMax ? schema.maximum : 10000;
+
     const hint = valueFromKey(key);
-    if (typeof hint === 'number') return hint;
+    if (typeof hint === 'number') {
+      // Clamp the hint into the declared range
+      return Math.min(Math.max(hint, min), max);
+    }
     return type === 'integer'
       ? randInt(min, max)
       : parseFloat((rng() * (max - min) + min).toFixed(2));
@@ -248,16 +256,132 @@ export function generateValue(schema = {}, key = '', depth = 0) {
     if (fmt === 'phone')             return phone();
     if (fmt === 'color')             return pick(COLORS);
 
-    const hint = valueFromKey(key);
-    if (hint !== null) return String(hint);
+    // If an explicit pattern is declared, satisfy the common ones directly
+    if (schema.pattern) {
+      const p = String(schema.pattern);
+      if (/@/.test(p))                        return email(key);   // email-ish pattern
+      if (/\\d|\[0-9\]/.test(p) && p.length < 20) return String(randInt(1000, 99999));
+    }
 
-    const minLen = schema.minLength ?? 4;
-    const maxLen = schema.maxLength ?? 12;
-    const len    = randInt(minLen, maxLen);
-    return Array.from({ length: Math.ceil(len / 5) }, () => pick(WORDS)).join('_').slice(0, len);
+    const hint = valueFromKey(key);
+    let value  = hint !== null ? String(hint) : null;
+
+    if (value === null) {
+      const minLen = schema.minLength ?? 4;
+      const maxLen = schema.maxLength ?? 12;
+      const len    = randInt(minLen, maxLen);
+      value = Array.from({ length: Math.ceil(len / 5) }, () => pick(WORDS)).join('_').slice(0, len);
+    }
+
+    // Enforce declared length bounds on the final value
+    if (schema.maxLength != null && value.length > schema.maxLength) {
+      value = value.slice(0, schema.maxLength);
+    }
+    if (schema.minLength != null && value.length < schema.minLength) {
+      value = value.padEnd(schema.minLength, 'x');
+    }
+    return value;
   }
 
   return pick(WORDS);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Schema constraint validator — used by routes/mock.js on POST/PUT bodies
+// ─────────────────────────────────────────────────────────────────────────────
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const UUID_STR_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * validateAgainstSchema(body, resourceSchema)
+ *
+ * Checks a user-supplied object against the JSON-Schema-style resource
+ * definition. Returns an array of { field, message } violations — empty
+ * array means the body is valid.
+ *
+ * Supported constraints:
+ *   • type            (string / number / integer / boolean / array)
+ *   • minimum / maximum        (numeric bounds)
+ *   • minLength / maxLength     (string length)
+ *   • format: email / uuid      (regex validation)
+ *   • pattern                   (custom regex)
+ *   • enum                      (allowed value set)
+ *
+ * Only fields PRESENT in the body are validated — missing fields are ignored
+ * (the mock layer fills them in), so partial PATCH bodies pass cleanly.
+ *
+ * @param {object} body
+ * @param {object} resourceSchema  — { type:'object', properties:{...} }
+ * @returns {{ field: string, message: string }[]}
+ */
+export function validateAgainstSchema(body, resourceSchema) {
+  const violations = [];
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return violations;
+  const props = resourceSchema?.properties ?? {};
+
+  for (const [field, value] of Object.entries(body)) {
+    const spec = props[field];
+    if (!spec) continue;                 // unknown field — allowed (extra data ok)
+    if (value === null || value === undefined) continue;
+
+    const t = spec.type;
+
+    // ── Type mismatch ──────────────────────────────────────────────────────
+    if (t === 'integer' && !Number.isInteger(value)) {
+      violations.push({ field, message: `must be an integer` });
+      continue;
+    }
+    if (t === 'number' && typeof value !== 'number') {
+      violations.push({ field, message: `must be a number` });
+      continue;
+    }
+    if (t === 'boolean' && typeof value !== 'boolean') {
+      violations.push({ field, message: `must be a boolean` });
+      continue;
+    }
+    if (t === 'array' && !Array.isArray(value)) {
+      violations.push({ field, message: `must be an array` });
+      continue;
+    }
+    if (t === 'string' && typeof value !== 'string') {
+      violations.push({ field, message: `must be a string` });
+      continue;
+    }
+
+    // ── Numeric bounds ───────────────────────────────────────────────────────
+    if ((t === 'number' || t === 'integer') && typeof value === 'number') {
+      if (spec.minimum != null && value < spec.minimum)
+        violations.push({ field, message: `must be ≥ ${spec.minimum}` });
+      if (spec.maximum != null && value > spec.maximum)
+        violations.push({ field, message: `must be ≤ ${spec.maximum}` });
+    }
+
+    // ── String constraints ──────────────────────────────────────────────────
+    if (t === 'string' && typeof value === 'string') {
+      if (spec.minLength != null && value.length < spec.minLength)
+        violations.push({ field, message: `must be at least ${spec.minLength} characters` });
+      if (spec.maxLength != null && value.length > spec.maxLength)
+        violations.push({ field, message: `must be at most ${spec.maxLength} characters` });
+      if (spec.format === 'email' && !EMAIL_RE.test(value))
+        violations.push({ field, message: `must be a valid email address` });
+      if (spec.format === 'uuid' && !UUID_STR_RE.test(value))
+        violations.push({ field, message: `must be a valid UUID` });
+      if (spec.pattern) {
+        try {
+          if (!new RegExp(spec.pattern).test(value))
+            violations.push({ field, message: `must match pattern ${spec.pattern}` });
+        } catch { /* invalid pattern in schema — skip */ }
+      }
+    }
+
+    // ── Enum membership ──────────────────────────────────────────────────────
+    if (Array.isArray(spec.enum) && !spec.enum.includes(value)) {
+      violations.push({ field, message: `must be one of: ${spec.enum.join(', ')}` });
+    }
+  }
+
+  return violations;
 }
 
 /**

@@ -55,6 +55,7 @@ export const SessionStore = {
       store.set(sessionId, {
         endpoints:       new Map(),
         collections:     new Map(),   // ← stateful collection arrays
+        traffic:         [],          // ← rolling inbound HTTP event log (max 100)
         createdAt:       Date.now(),
         lastAccessedAt:  Date.now(),
       });
@@ -158,6 +159,45 @@ export const SessionStore = {
     session.collections.set(slug, filtered);
     session.lastAccessedAt = Date.now();
     return filtered.length < before;
+  },
+
+  // ── Live Traffic Log ────────────────────────────────────────────────────
+
+  /**
+   * Record an inbound HTTP event for the Live Traffic Inspector.
+   * Keeps a rolling window of the last 100 events per session (newest first).
+   *
+   * @param {string} sessionId
+   * @param {object} event  — { id, ts, method, slug, status, latencyMs, ip }
+   */
+  recordTraffic(sessionId, event) {
+    // getOrCreate ensures the session exists so traffic is never dropped
+    const session = this.getOrCreate(sessionId);
+    session.traffic.unshift(event);
+    if (session.traffic.length > 100) session.traffic.length = 100;
+  },
+
+  /**
+   * Retrieve the traffic log for a session.
+   * `sinceId` allows the frontend poller to fetch only NEW events —
+   * returns all events that appear before the given id (newest-first order).
+   *
+   * @param {string} sessionId
+   * @param {string|null} [sinceId]
+   * @returns {{ events: object[], total: number }}
+   */
+  getTraffic(sessionId, sinceId = null) {
+    const session = store.get(sessionId);
+    if (!session) return { events: [], total: 0 };
+    session.lastAccessedAt = Date.now();
+
+    const all = session.traffic;
+    if (!sinceId) return { events: all, total: all.length };
+
+    // Return only events newer than sinceId (everything before its index)
+    const idx = all.findIndex(e => e.id === sinceId);
+    const events = idx === -1 ? all : all.slice(0, idx);
+    return { events, total: all.length };
   },
 
   // ── Housekeeping ────────────────────────────────────────────────────────

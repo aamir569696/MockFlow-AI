@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
 import { MockResolver } from '../services/MockResolver.js';
-import { generateResponse, generateValue, seedFromKey } from '../services/DataGenerator.js';
+import { generateResponse, generateValue, seedFromKey, validateAgainstSchema } from '../services/DataGenerator.js';
 import { SessionStore } from '../services/SessionStore.js';
 
 const router = Router();
@@ -120,6 +120,23 @@ const handleMock = async (req, res, next) => {
       });
     }
 
+    // ── Live Traffic recorder ─────────────────────────────────────────────
+    // res.on('finish') fires exactly once when the response is fully sent,
+    // regardless of which branch below returns. This captures the true final
+    // status code + wall-clock latency for the Live Traffic Inspector.
+    const _trafficStart = Date.now();
+    res.on('finish', () => {
+      SessionStore.recordTraffic(sessionId, {
+        id:        `evt-${_trafficStart}-${Math.random().toString(36).slice(2, 7)}`,
+        ts:        new Date(_trafficStart).toISOString(),
+        method,
+        slug:      endpointSlug,
+        status:    res.statusCode,
+        latencyMs: Date.now() - _trafficStart,
+        ip:        (req.headers['x-forwarded-for'] || req.ip || '').toString().split(',')[0].trim(),
+      });
+    });
+
     // ── 3 & 4. Resolve endpoint (session-isolated lookup) ────────────────
     const definition = MockResolver.resolve(sessionId, endpointSlug);
 
@@ -167,6 +184,29 @@ const handleMock = async (req, res, next) => {
         res.setHeader('X-MockFlow-Slug',          endpointSlug);
         res.setHeader('X-MockFlow-Simulated-Error', String(forceStatus));
         return res.status(forceStatus).json(body);
+      }
+    }
+
+    // ── 5b. Schema constraint validation (POST / PUT / PATCH) ────────────
+    // Validate the incoming body against the resource schema's constraints
+    // (minimum/maximum, minLength/maxLength, format:email/uuid, pattern, enum).
+    // Only runs when a JSON body is present; unknown fields are permitted.
+    // Bypass with header x-mockflow-skip-validation: true for raw testing.
+    const skipValidation = String(req.headers['x-mockflow-skip-validation'] ?? '') === 'true';
+    if (!skipValidation && ['POST', 'PUT', 'PATCH'].includes(method)
+        && req.body && typeof req.body === 'object' && !Array.isArray(req.body)) {
+      const resourceSchema = definition.responseSchema ?? definition.schema ?? {};
+      const violations = validateAgainstSchema(req.body, resourceSchema);
+      if (violations.length) {
+        res.setHeader('X-MockFlow-Session', sessionId);
+        res.setHeader('X-MockFlow-Slug',    endpointSlug);
+        return res.status(422).json({
+          error: {
+            code:    'VALIDATION_FAILED',
+            message: `${violations.length} field${violations.length !== 1 ? 's' : ''} failed schema validation.`,
+            fields:  violations,
+          },
+        });
       }
     }
 
@@ -231,11 +271,31 @@ const handleMock = async (req, res, next) => {
       }
 
       // ── POST — append new item ────────────────────────────────────────────
+      //
+      // Persistence contract: the user's explicit body keys are AUTHORITATIVE
+      // and are stored verbatim. Generated mock data only backfills fields the
+      // caller did NOT provide, so it can never overwrite or type-coerce a
+      // custom key. Any key the caller sends that is absent from the AI schema
+      // vocabulary (e.g. `name`, `role`) is preserved exactly as received —
+      // it bypasses every internal schema boundary and lands in storage as-is.
       if (method === 'POST') {
         const schema    = definition.responseSchema ?? definition.schema ?? { type: 'object' };
         const generated = generateValue(schema, '', 0);
-        const merged    = deepMerge(generated, req.body ?? {});
-        const newItem   = SessionStore.appendToCollection(sessionId, collectionKey, merged);
+
+        // Normalise the incoming payload to a plain object.
+        const userBody  = (req.body && typeof req.body === 'object' && !Array.isArray(req.body))
+          ? req.body
+          : {};
+
+        // Backfill generated defaults ONLY for keys the user did not supply,
+        // then overlay the raw user body last so every custom key wins verbatim.
+        const generatedDefaults = (generated && typeof generated === 'object' && !Array.isArray(generated))
+          ? generated
+          : {};
+
+        const merged = { ...generatedDefaults, ...userBody };
+
+        const newItem = SessionStore.appendToCollection(sessionId, collectionKey, merged);
 
         res.setHeader('X-MockFlow-Session',    sessionId);
         res.setHeader('X-MockFlow-Slug',       endpointSlug);

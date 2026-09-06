@@ -7,6 +7,7 @@ import RequestRunner from '../components/playground/RequestRunner.jsx';
 import SavePromptBanner from '../components/playground/SavePromptBanner.jsx';
 import ExportDropdown from '../components/playground/ExportDropdown.jsx';
 import MockHistorySidebar from '../components/playground/MockHistorySidebar.jsx';
+import SdkGenerator from '../components/playground/SdkGenerator.jsx';
 import { usePlaygroundStore } from '../store/playgroundStore.js';
 import { useAuthStore } from '../store/authStore.js';
 
@@ -397,6 +398,7 @@ export default function PlaygroundPage() {
           </div>
           <EndpointPreview />
           <RequestRunner />
+          <SdkGenerator />
         </section>
       </main>
 

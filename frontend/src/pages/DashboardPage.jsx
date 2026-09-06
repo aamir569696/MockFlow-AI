@@ -2,6 +2,9 @@ import { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore.js';
 import { usePlaygroundStore } from '../store/playgroundStore.js';
+import TrafficInspector from '../components/dashboard/TrafficInspector.jsx';
+import StressTester from '../components/dashboard/StressTester.jsx';
+import RegressionLog from '../components/dashboard/RegressionLog.jsx';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -782,6 +785,17 @@ export default function DashboardPage() {
           <div className="px-4 py-3">
             <MicroTelemetry compileMeta={compileMeta} />
           </div>
+        </div>
+
+        {/* ── Performance Stress-Tester + Regression Log ───────────────── */}
+        <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-2">
+          <StressTester />
+          <RegressionLog />
+        </div>
+
+        {/* ── Live Traffic Webhook Inspector ───────────────────────────── */}
+        <div className="mt-6">
+          <TrafficInspector />
         </div>
 
         {/* ── Footer ───────────────────────────────────────────────────── */}
