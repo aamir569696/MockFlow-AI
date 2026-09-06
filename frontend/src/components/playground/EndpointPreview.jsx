@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { usePlaygroundStore } from '../../store/playgroundStore.js';
 import ExportDropdown from './ExportDropdown.jsx';
 
@@ -418,22 +419,32 @@ export default function EndpointPreview() {
 
       {/* ── Endpoint accordion list ────────────────────────────────────── */}
       {!isGenerating && endpoints.length > 0 && (
-        <ul className="flex flex-col gap-1" role="list">
+        <motion.ul
+          className="flex flex-col gap-1"
+          role="list"
+          variants={{
+            hidden: {},
+            show:   { transition: { staggerChildren: 0.04 } },
+          }}
+          initial="hidden"
+          animate="show"
+        >
           {endpoints.map((ep, index) => {
             const mockPath    = `/api/mock/${sessionId}/${ep.slug}`;
             const drawerKey   = `${index}-${ep.method}-${ep.slug}`;
             const isActive    = activeEndpoint?.slug === ep.slug && activeEndpoint?.method === ep.method;
             const isOpen      = openDrawer === drawerKey;
             const methodClass = METHOD_COLORS[ep.method] ?? 'method-GET';
-            // Staggered cascade: each card slides up with an increasing delay
-            // capped at 400 ms so the last card doesn't feel sluggish
-            const staggerDelay = `${Math.min(index * 45, 400)}ms`;
 
             return (
-              <li
+              <motion.li
                 key={drawerKey}
-                className="flex flex-col animate-slide-up"
-                style={{ animationDelay: staggerDelay }}
+                className="flex flex-col"
+                variants={{
+                  hidden: { opacity: 0, y: 14, scale: 0.98 },
+                  show:   { opacity: 1, y: 0,  scale: 1,
+                    transition: { type: 'spring', stiffness: 340, damping: 26 } },
+                }}
               >
 
                 {/* ── Route card (accordion trigger) ───────────────── */}
@@ -508,18 +519,29 @@ export default function EndpointPreview() {
                   </svg>
                 </div>
 
-                {/* ── Accordion drawer ─────────────────────────────── */}
-                {isOpen && (
-                  <EndpointDrawer
-                    ep={ep}
-                    mockPath={mockPath}
-                    generatedSchema={generatedSchema}
-                  />
-                )}
-              </li>
+                {/* ── Accordion drawer — spring expand ─────────── */}
+                <AnimatePresence initial={false}>
+                  {isOpen && (
+                    <motion.div
+                      key="drawer"
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ type: 'spring', stiffness: 260, damping: 22 }}
+                      style={{ overflow: 'hidden' }}
+                    >
+                      <EndpointDrawer
+                        ep={ep}
+                        mockPath={mockPath}
+                        generatedSchema={generatedSchema}
+                      />
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </motion.li>
             );
           })}
-        </ul>
+        </motion.ul>
       )}
     </div>
   );

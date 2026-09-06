@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { motion } from 'framer-motion';
 import { usePlaygroundStore } from '../../store/playgroundStore.js';
 
 // ── Power-Prompt Quick Action Badges ─────────────────────────────────────────
@@ -74,16 +75,29 @@ export default function PromptPanel() {
   };
 
   return (
-    <div
+    <motion.div
       className="relative flex flex-col gap-4 overflow-hidden rounded-xl
-                 border border-gray-800/60 p-4 animate-fade-in"
+                 border border-gray-800/60 p-4"
       style={{
-        /* Dot-grid mesh — premium Linear/Vercel texture */
         backgroundImage: [
           'radial-gradient(circle, rgba(98,114,245,0.05) 1px, transparent 1px)',
-          'linear-gradient(rgba(17,17,27,0.97) 0%, rgba(17,17,27,0.97) 100%)',
+          'linear-gradient(120deg, rgba(17,17,27,0.97) 0%, rgba(30,27,75,0.92) 25%, rgba(17,17,27,0.97) 50%, rgba(30,29,82,0.92) 75%, rgba(17,17,27,0.97) 100%)',
         ].join(', '),
-        backgroundSize: '20px 20px, 100% 100%',
+        backgroundSize: '20px 20px, 300% 300%',
+      }}
+      animate={isGenerating ? {
+        backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'],
+      } : {
+        backgroundPosition: '0% 50%',
+      }}
+      transition={isGenerating ? {
+        backgroundPosition: {
+          duration: 4,
+          repeat: Infinity,
+          ease: 'linear',
+        },
+      } : {
+        backgroundPosition: { duration: 0.6 },
       }}
     >
       {/* Corner accent — top-left */}
@@ -316,6 +330,6 @@ export default function PromptPanel() {
           </>
         )}
       </button>
-    </div>
+    </motion.div>
   );
 }
