@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { usePlaygroundStore } from '../../store/playgroundStore.js';
+import { REGIONS, getRegion } from '../../lib/regions.js';
 
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
 
@@ -754,12 +755,22 @@ function TelemetryCard({ icon, label, value, valueClass = 'text-gray-200', subla
 
 // ── Live Telemetry Dashboard ──────────────────────────────────────────────────
 
-function TelemetryDashboard({ status, latency, responseHeaders, response }) {
+function TelemetryDashboard({ status, latency, responseHeaders, response, region }) {
   const sm    = statusMeta(status);
   const lm    = latencyMeta(latency);
   const ct    = contentType(responseHeaders);
   const size  = payloadSize(response);
   const label = statusLabel(status);
+  const rg    = getRegion(region);
+
+  // Latency window bounds attributable to the selected edge region.
+  // The server adds ~rg.latencyMs; we show that as the simulated edge floor.
+  const edgeFloor = rg.latencyMs;
+  const edgeColor =
+    edgeFloor === 0  ? 'text-emerald-300' :
+    edgeFloor < 80   ? 'text-sky-300'     :
+    edgeFloor < 200  ? 'text-amber-300'   :
+                       'text-red-300';
 
   return (
     <div className="flex flex-col gap-3 animate-slide-up">
@@ -829,6 +840,31 @@ function TelemetryDashboard({ status, latency, responseHeaders, response }) {
           valueClass="text-purple-300"
           sublabel="Response size"
         />
+      </div>
+
+      {/* ── Region Gateway telemetry band ──────────────────────────────── */}
+      <div className="flex items-center gap-2.5 rounded-lg border border-indigo-900/40
+                      bg-indigo-950/20 px-3 py-2 animate-fade-in">
+        <span className="text-base leading-none" aria-hidden="true">{rg.flag}</span>
+        <div className="flex min-w-0 flex-col">
+          <span className="truncate text-xs font-semibold text-indigo-200">
+            {rg.label}
+            <span className="ml-1.5 font-mono text-[10px] font-normal text-indigo-500/80">
+              {rg.token}
+            </span>
+          </span>
+          <span className="truncate text-[10px] text-gray-600">
+            Edge node · {rg.location}
+          </span>
+        </div>
+        <div className="ml-auto flex flex-col items-end">
+          <span className={`font-mono text-xs font-bold tabular-nums ${edgeColor}`}>
+            {edgeFloor === 0 ? 'native' : `+${edgeFloor} ms`}
+          </span>
+          <span className="font-mono text-[10px] text-gray-700">
+            simulated edge delay
+          </span>
+        </div>
       </div>
 
       {/* Status band */}
@@ -931,6 +967,94 @@ function TelemetryDashboard({ status, latency, responseHeaders, response }) {
   );
 }
 
+// ── Global Cloud Region Gateway ───────────────────────────────────────────────
+
+/**
+ * RegionGateway — elegant edge-region selector.
+ *
+ * Renders a styled dropdown of cloud regions. The selected token is sent as the
+ * `x-mockflow-region` header on the next fetch, and the backend applies the
+ * matching simulated edge latency. Shows a live preview of the region's flag,
+ * location and expected latency window.
+ */
+function RegionGateway({ value, onChange }) {
+  const active = getRegion(value);
+
+  // Colour-grade the latency preview chip.
+  const latColor =
+    active.latencyMs === 0   ? 'text-emerald-400' :
+    active.latencyMs < 80    ? 'text-sky-400'     :
+    active.latencyMs < 200   ? 'text-amber-400'   :
+                               'text-red-400';
+
+  return (
+    <div
+      className="overflow-hidden rounded-xl border border-indigo-900/30
+                 transition-colors duration-200 hover:border-indigo-700/50"
+      style={{ background: 'rgba(15,23,42,0.55)', backdropFilter: 'blur(6px)' }}
+    >
+      <div className="flex flex-col gap-3 px-3 py-3">
+        {/* Label row */}
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-5 w-5 shrink-0 items-center justify-center
+                          rounded-md bg-indigo-600/20 ring-1 ring-indigo-600/40">
+            <svg className="h-3 w-3 text-indigo-400" fill="none" viewBox="0 0 24 24"
+                 stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round"
+                    d="M3.6 9h16.8M3.6 15h16.8M12 3a15 15 0 010 18M12 3a15 15 0 000 18
+                       M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+          <span className="text-xs font-semibold text-gray-300">
+            🌍 Global Cloud Region Gateway
+          </span>
+          {/* live latency preview chip */}
+          <span className={`ml-auto font-mono text-[10px] font-bold tabular-nums ${latColor}`}>
+            {active.latencyMs === 0 ? '~0 ms · native' : `~${active.latencyMs} ms edge`}
+          </span>
+        </div>
+
+        {/* Select + active preview */}
+        <div className="flex items-center gap-2">
+          <span className="text-lg leading-none" aria-hidden="true">{active.flag}</span>
+          <div className="relative flex-1">
+            <select
+              value={value}
+              onChange={(e) => onChange(e.target.value)}
+              className="input w-full appearance-none py-2 pr-9 font-mono text-xs
+                         text-gray-200 focus:border-indigo-500"
+              aria-label="Global cloud region gateway"
+            >
+              {REGIONS.map((r) => (
+                <option key={r.token} value={r.token} className="bg-gray-900">
+                  {r.flag}  {r.label} · {r.token} {r.latencyMs ? `(~${r.latencyMs}ms)` : '(native)'}
+                </option>
+              ))}
+            </select>
+            {/* chevron */}
+            <svg className="pointer-events-none absolute right-3 top-1/2 h-3.5 w-3.5
+                            -translate-y-1/2 text-gray-600"
+                 fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
+          </div>
+        </div>
+
+        {/* Active region detail line */}
+        <div className="flex items-center justify-between rounded-lg border
+                        border-gray-800/60 bg-gray-950/50 px-2.5 py-1.5">
+          <span className="text-[10px] text-gray-600">
+            Edge node · <span className="text-gray-400">{active.location}</span>
+          </span>
+          <span className="font-mono text-[10px] text-gray-600">
+            x-mockflow-region: <span className="text-indigo-400">{active.token}</span>
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function RequestRunner() {
@@ -940,11 +1064,13 @@ export default function RequestRunner() {
     setRunnerMethod,
     setRunnerBody,
     setCustomHeaders,
+    setRegion,
     fireFetch,
     sessionId,
   } = usePlaygroundStore();
 
-  const { method, url, body, isFiring, response, status, latency, error, responseHeaders, customHeaders = [] } = runner;
+  const { method, url, body, isFiring, response, status, latency, error, responseHeaders, customHeaders = [], region = 'local' } = runner;
+  const activeRegion = getRegion(region);
   const hasResult = status !== null || error !== null;
 
   // ── Toast state — shown for 2 s on header-add or URL-copy events ─────────
@@ -1148,6 +1274,15 @@ export default function RequestRunner() {
             }}
           />
 
+          {/* ── Global Cloud Region Gateway ───────────────────────────── */}
+          <RegionGateway
+            value={region}
+            onChange={(token) => {
+              setRegion(token);
+              showToast(`🌍 Region → ${getRegion(token).label}`);
+            }}
+          />
+
           {/* ── Request body ──────────────────────────────────────────────── */}
           {['POST', 'PUT', 'PATCH'].includes(method) && (
             <JsonBodyEditor value={body} onChange={setRunnerBody} />
@@ -1210,6 +1345,7 @@ export default function RequestRunner() {
                   latency={latency}
                   responseHeaders={responseHeaders}
                   response={response}
+                  region={region}
                 />
               )}
 

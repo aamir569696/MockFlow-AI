@@ -51,6 +51,32 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,127}$/;
 
 /**
+ * Global Edge Regional Gateway — simulated edge latency windows (ms).
+ *
+ * When a request carries an `x-mockflow-region` header, the matching latency
+ * is added to the response delay to emulate the round-trip to that edge node.
+ * Tokens mirror the frontend region catalogue (src/lib/regions.js).
+ */
+const REGION_LATENCY = {
+  'us-east-1':      280,   // US East (N. Virginia)
+  'eu-central-1':   110,   // Europe (Frankfurt)
+  'ap-southeast-1':  45,   // Singapore
+  'local':            0,   // Local Edge Native (in-memory, no hop)
+};
+
+/**
+ * Resolve the simulated edge latency for an incoming region header.
+ * Unknown / missing tokens resolve to 0 (treated as local/native).
+ */
+function resolveRegionDelay(rawRegion) {
+  const token = String(rawRegion ?? '').trim().toLowerCase();
+  const known = Object.prototype.hasOwnProperty.call(REGION_LATENCY, token);
+  return known
+    ? { token, delay: REGION_LATENCY[token] }
+    : { token: 'local', delay: 0 };
+}
+
+/**
  * Validate and sanitise the session UUID.
  * Returns the normalised (lowercase) UUID string, or null if invalid.
  */
@@ -137,8 +163,10 @@ const handleMock = async (req, res, next) => {
       });
     });
 
-    // ── 3 & 4. Resolve endpoint (session-isolated lookup) ────────────────
-    const definition = MockResolver.resolve(sessionId, endpointSlug);
+    // ── 3 & 4. Resolve endpoint (session-isolated, method-aware lookup) ──
+    // Method-aware so a slug serving both a list GET and a create POST
+    // resolves to the correct definition instead of whichever registered last.
+    const definition = MockResolver.resolve(sessionId, endpointSlug, method);
 
     if (!definition) {
       // Distinguish "session never existed / expired" from "slug not found".
@@ -210,11 +238,23 @@ const handleMock = async (req, res, next) => {
       }
     }
 
-    // ── 6. Latency simulation ────────────────────────────────────────────
+    // ── 6. Latency simulation (incl. Global Edge Regional Gateway) ───────
     const requestedDelay = parseInt(req.headers['x-mockflow-delay'] ?? '0', 10);
     const headerDelay    = !isNaN(requestedDelay) ? requestedDelay : 0;
     const endpointDelay  = definition.delayMs ?? 0;
-    const totalDelay     = Math.min(Math.max(headerDelay, endpointDelay), 5000);
+
+    // Simulated edge round-trip for the selected cloud region. Additive on top
+    // of the base delay so region latency stacks with any explicit delay.
+    const { token: regionToken, delay: regionDelay } =
+      resolveRegionDelay(req.headers['x-mockflow-region']);
+
+    const baseDelay  = Math.max(headerDelay, endpointDelay);
+    const totalDelay = Math.min(baseDelay + regionDelay, 5000);
+
+    // Reflect the resolved region + its simulated delay back to the client so
+    // the telemetry dashboard can display authentic edge attribution.
+    res.setHeader('X-MockFlow-Region',       regionToken);
+    res.setHeader('X-MockFlow-Region-Delay', String(regionDelay));
 
     if (totalDelay > 0) {
       await new Promise((resolve) => setTimeout(resolve, totalDelay));

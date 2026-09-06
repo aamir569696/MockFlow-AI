@@ -66,21 +66,37 @@ export const SessionStore = {
   },
 
   /**
-   * Store a mock definition under a session + slug key.
+   * Store a mock definition under a session + endpoint key.
+   *
+   * Endpoints are keyed by `slug:METHOD` so that multiple HTTP verbs sharing
+   * a single slug (e.g. `GET /posts` list + `POST /posts` create) coexist
+   * without overwriting one another. A slug-only alias is also written for
+   * backward compatibility with callers that resolve by slug alone.
    */
   setEndpoint(sessionId, slug, definition) {
     const session = this.getOrCreate(sessionId);
-    session.endpoints.set(slug, definition);
+    const method = (definition?.method ?? 'GET').toUpperCase();
+    session.endpoints.set(`${slug}:${method}`, definition);
+    // Slug-only alias — first writer wins so the primary (usually GET) route
+    // remains resolvable by bare slug for legacy lookups.
+    if (!session.endpoints.has(slug)) {
+      session.endpoints.set(slug, definition);
+    }
   },
 
   /**
-   * Retrieve a mock definition by session + slug.
-   * Returns null when session or slug not found — never throws.
+   * Retrieve a mock definition by session + slug (+ optional method).
+   * Prefers the method-specific entry, then falls back to the slug alias.
+   * Returns null when session or endpoint not found — never throws.
    */
-  getEndpoint(sessionId, slug) {
+  getEndpoint(sessionId, slug, method) {
     const session = store.get(sessionId);
     if (!session) return null;
     session.lastAccessedAt = Date.now();
+    if (method) {
+      const exact = session.endpoints.get(`${slug}:${method.toUpperCase()}`);
+      if (exact) return exact;
+    }
     return session.endpoints.get(slug) ?? null;
   },
 

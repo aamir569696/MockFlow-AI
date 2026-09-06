@@ -326,18 +326,33 @@ export const MockResolver = {
     const { apiName = 'Mock API', description = '', schema = {}, endpoints = [] } = parsed;
 
     // ── Step 3: Register all endpoints in SessionStore ──────────────────────
+    // Precompute the set of resources that own a collection (list) endpoint.
+    // A create-POST against such a resource must join the stateful collection
+    // engine so its body is persisted and returned by the sibling list GET —
+    // otherwise the POST falls through to the generator and is silently lost.
+    const collectionResources = new Set(
+      endpoints
+        .filter((e) => e.isCollection && (e.resource))
+        .map((e) => e.resource)
+    );
+
     const registeredEndpoints = [];
     for (const ep of endpoints) {
       const slug = sanitiseSlug(ep.slug);
       const resource = ep.resource || Object.keys(schema)[0] || 'Item';
       const resourceSchema = schema[resource] || { type: 'object', properties: {} };
+      const method = (ep.method || 'GET').toUpperCase();
+
+      // A write against a collection-backed resource is itself stateful.
+      const isCollection = Boolean(ep.isCollection)
+        || (['POST', 'DELETE'].includes(method) && collectionResources.has(resource));
 
       const definition = {
         slug,
-        method: (ep.method || 'GET').toUpperCase(),
+        method,
         description: ep.description || '',
         resource,
-        isCollection: Boolean(ep.isCollection),
+        isCollection,
         schema: resourceSchema,
         responseSchema: resourceSchema,
         createdAt: Date.now(),
@@ -367,8 +382,8 @@ export const MockResolver = {
    * Resolve an existing endpoint definition from the SessionStore.
    * Returns null if not found.
    */
-  resolve(sessionId, slug) {
-    return SessionStore.getEndpoint(sessionId, slug);
+  resolve(sessionId, slug, method) {
+    return SessionStore.getEndpoint(sessionId, slug, method);
   },
 
   /**

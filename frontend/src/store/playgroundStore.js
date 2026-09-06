@@ -29,6 +29,9 @@ const TRANSIENT_RUNNER = {
   // HTTP Headers Playground — array of { id: string, key: string, value: string }
   // Persisted across requests within a session; cleared on clearWorkspace.
   customHeaders:   [],
+  // Global Edge Regional Gateway — selected region token sent as the
+  // x-mockflow-region header. Drives simulated edge latency on the backend.
+  region:          'local',
 };
 
 export const usePlaygroundStore = create(
@@ -75,6 +78,8 @@ export const usePlaygroundStore = create(
             // Preserve custom headers across endpoint switches so the user
             // doesn't have to re-enter auth headers for every endpoint
             customHeaders: state.runner.customHeaders ?? [],
+            // Preserve the selected edge region across endpoint switches.
+            region:        state.runner.region ?? 'local',
           },
         })),
 
@@ -90,6 +95,10 @@ export const usePlaygroundStore = create(
       /** Replace the entire custom headers array. */
       setCustomHeaders: (customHeaders) =>
         set((state) => ({ runner: { ...state.runner, customHeaders } })),
+
+      /** Set the active Global Edge region token. */
+      setRegion: (region) =>
+        set((state) => ({ runner: { ...state.runner, region } })),
 
       clearRunner: () =>
         set((state) => ({
@@ -319,6 +328,14 @@ export const usePlaygroundStore = create(
                 const h = runner.errorSimStatus
                   ? { 'x-mockflow-force-status': String(runner.errorSimStatus) }
                   : {};
+
+                // Global Edge Regional Gateway — send the selected region token
+                // so the backend can apply the matching edge latency window.
+                // Placed before custom headers so an explicit custom row can
+                // still override it if the user wants to.
+                if (runner.region) {
+                  h['x-mockflow-region'] = String(runner.region);
+                }
 
                 // Merge custom headers from the Headers Playground.
                 // Rules:
