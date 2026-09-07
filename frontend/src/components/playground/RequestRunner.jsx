@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { usePlaygroundStore } from '../../store/playgroundStore.js';
 import { REGIONS, getRegion } from '../../lib/regions.js';
 
@@ -29,6 +29,10 @@ function statusMeta(code) {
   if (!code) return { dot: 'bg-gray-600', text: 'text-gray-500', glow: '',          band: 'border-gray-800  bg-gray-900/60'  };
   if (code < 300) return { dot: 'bg-emerald-500', text: 'text-emerald-300', glow: 'shadow-emerald-500/40', band: 'border-emerald-900/50 bg-emerald-950/30' };
   if (code < 400) return { dot: 'bg-blue-500',    text: 'text-blue-300',    glow: 'shadow-blue-500/40',    band: 'border-blue-900/50   bg-blue-950/30'    };
+  // Auth failures (401/403) read as red — a hard "you are blocked" signal —
+  // rather than the amber used for softer 4xx like validation.
+  if (code === 401 || code === 403)
+    return           { dot: 'bg-red-500',     text: 'text-red-300',     glow: 'shadow-red-500/40',     band: 'border-red-900/50    bg-red-950/30'     };
   if (code < 500) return { dot: 'bg-amber-500',   text: 'text-amber-300',   glow: 'shadow-amber-500/40',   band: 'border-amber-900/50  bg-amber-950/30'   };
   return             { dot: 'bg-red-500',     text: 'text-red-300',     glow: 'shadow-red-500/40',     band: 'border-red-900/50    bg-red-950/30'     };
 }
@@ -1055,6 +1059,186 @@ function RegionGateway({ value, onChange }) {
   );
 }
 
+// ── 🔒 Auth Simulation panel ────────────────────────────────────────────────────
+
+/**
+ * AuthPanel — "Require Authentication" toggle + generated credentials + the
+ * request Authorization selector (No Auth / API Key / Bearer Token).
+ *
+ * When auth is ON, the backend rejects any mock request lacking a valid
+ * credential with a 401 — so developers can exercise their own auth-failure
+ * handling. The selector auto-fills the matching header on the next fire.
+ */
+function AuthPanel({ authMode, onAuthModeChange }) {
+  const authSim          = usePlaygroundStore((s) => s.authSim);
+  const authSimLoading   = usePlaygroundStore((s) => s.authSimLoading);
+  const setAuthEnabled   = usePlaygroundStore((s) => s.setAuthEnabled);
+  const regenerateAuthKey= usePlaygroundStore((s) => s.regenerateAuthKey);
+  const loadAuthSim      = usePlaygroundStore((s) => s.loadAuthSim);
+
+  const [copied, setCopied] = useState(null);   // 'key' | 'token' | null
+
+  // Sync the displayed credentials/state with the backend session on mount.
+  useEffect(() => { loadAuthSim(); }, [loadAuthSim]);
+
+  const copy = (which, text) => {
+    navigator.clipboard?.writeText(text).then(
+      () => { setCopied(which); setTimeout(() => setCopied(null), 1600); },
+      () => {},
+    );
+  };
+
+  const enabled = authSim.enabled;
+
+  const MODES = [
+    { id: 'none',   label: 'No Auth' },
+    { id: 'apikey', label: 'API Key' },
+    { id: 'bearer', label: 'Bearer Token' },
+  ];
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-amber-900/30
+                    transition-colors duration-200 hover:border-amber-700/40"
+         style={{ background: 'rgba(15,23,42,0.55)', backdropFilter: 'blur(6px)' }}>
+      <div className="flex flex-col gap-3 px-3 py-3">
+        {/* Toggle row */}
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md
+                          bg-amber-600/20 ring-1 ring-amber-600/40">
+            <svg className="h-3 w-3 text-amber-400" fill="none" viewBox="0 0 24 24"
+                 stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round"
+                    d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+            </svg>
+          </div>
+          <div className="flex min-w-0 flex-col">
+            <span className="text-xs font-semibold text-gray-300">Require Authentication</span>
+            <span className="text-[10px] text-gray-600">
+              {enabled ? 'Requests without a valid key return 401' : 'Off — endpoints are open'}
+            </span>
+          </div>
+
+          {/* Enable switch */}
+          <button
+            type="button"
+            role="switch"
+            aria-checked={enabled}
+            disabled={authSimLoading}
+            onClick={() => setAuthEnabled(!enabled)}
+            className={`relative ml-auto flex h-5 w-9 shrink-0 items-center rounded-full
+                        transition-colors duration-200
+                        focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500
+                        disabled:opacity-50
+                        ${enabled ? 'bg-amber-600' : 'bg-gray-700'}`}
+            aria-label="Toggle require authentication"
+          >
+            <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white
+                              transition-transform duration-200
+                              ${enabled ? 'translate-x-4' : 'translate-x-1'}`} />
+          </button>
+        </div>
+
+        {enabled && (
+          <>
+            {/* Generated credentials */}
+            <div className="flex flex-col gap-2 rounded-lg border border-gray-800/60
+                            bg-gray-950/50 p-2.5 animate-fade-in">
+              {/* API key */}
+              <div className="flex items-center gap-2">
+                <span className="w-14 shrink-0 text-[10px] font-semibold uppercase tracking-widest text-gray-600">
+                  API Key
+                </span>
+                <code className="min-w-0 flex-1 truncate font-mono text-[11px] text-amber-300/90"
+                      title={authSim.apiKey}>
+                  {authSim.apiKey || '—'}
+                </code>
+                <button
+                  type="button"
+                  onClick={() => copy('key', authSim.apiKey)}
+                  className={`shrink-0 rounded-md border px-2 py-0.5 text-[10px] font-semibold transition-all
+                              ${copied === 'key'
+                                ? 'border-emerald-800/60 bg-emerald-950/40 text-emerald-400'
+                                : 'border-gray-700 bg-gray-800/60 text-gray-400 hover:text-gray-200'}`}
+                  aria-label="Copy API key"
+                >
+                  {copied === 'key' ? '✓' : 'Copy'}
+                </button>
+              </div>
+              {/* Token */}
+              <div className="flex items-center gap-2">
+                <span className="w-14 shrink-0 text-[10px] font-semibold uppercase tracking-widest text-gray-600">
+                  Token
+                </span>
+                <code className="min-w-0 flex-1 truncate font-mono text-[11px] text-indigo-300/90"
+                      title={authSim.token}>
+                  {authSim.token || '—'}
+                </code>
+                <button
+                  type="button"
+                  onClick={() => copy('token', authSim.token)}
+                  className={`shrink-0 rounded-md border px-2 py-0.5 text-[10px] font-semibold transition-all
+                              ${copied === 'token'
+                                ? 'border-emerald-800/60 bg-emerald-950/40 text-emerald-400'
+                                : 'border-gray-700 bg-gray-800/60 text-gray-400 hover:text-gray-200'}`}
+                  aria-label="Copy bearer token"
+                >
+                  {copied === 'token' ? '✓' : 'Copy'}
+                </button>
+              </div>
+              {/* Regenerate */}
+              <button
+                type="button"
+                onClick={regenerateAuthKey}
+                disabled={authSimLoading}
+                className="flex items-center justify-center gap-1.5 rounded-md border
+                           border-gray-700 bg-gray-800/40 px-2 py-1 text-[10px] font-semibold
+                           text-gray-400 transition-colors hover:border-amber-700/50 hover:text-amber-300
+                           disabled:opacity-50"
+              >
+                <svg className={`h-3 w-3 ${authSimLoading ? 'animate-spin-slow' : ''}`}
+                     fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round"
+                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                Regenerate key & token (invalidates old)
+              </button>
+            </div>
+
+            {/* Authorization selector */}
+            <div className="flex flex-col gap-1.5">
+              <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-600">
+                Authorization
+              </span>
+              <div className="flex items-center gap-1 rounded-lg border border-gray-800 bg-gray-900/40 p-0.5">
+                {MODES.map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => onAuthModeChange(m.id)}
+                    className={`flex-1 rounded-md px-2 py-1 text-[11px] font-semibold transition-all
+                                ${authMode === m.id
+                                  ? 'bg-gray-800 text-gray-100 ring-1 ring-gray-700'
+                                  : 'text-gray-600 hover:text-gray-300'}`}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+              <p className="font-mono text-[10px] text-gray-600">
+                {authMode === 'bearer'
+                  ? 'Sends: Authorization: Bearer <token>'
+                  : authMode === 'apikey'
+                    ? 'Sends: x-api-key: <apiKey>'
+                    : 'No credential sent — expect a 401 response'}
+              </p>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── ⚡ Lambda Script editor ─────────────────────────────────────────────────────
 
 /**
@@ -1208,6 +1392,7 @@ export default function RequestRunner({ view = 'all' }) {
     setRegion,
     setLambdaScript,
     setLambdaEnabled,
+    setAuthMode,
     fireFetch,
     sessionId,
   } = usePlaygroundStore();
@@ -1222,6 +1407,7 @@ export default function RequestRunner({ view = 'all' }) {
     method, url, body, isFiring, response, status, latency, error, responseHeaders,
     customHeaders = [], region = 'local',
     lambdaScript = '', lambdaEnabled = false, lambdaError = null, lambdaApplied = false,
+    authMode = 'none',
   } = runner;
   const activeRegion = getRegion(region);
   const hasResult = status !== null || error !== null;
@@ -1437,6 +1623,9 @@ export default function RequestRunner({ view = 'all' }) {
               showToast(`🌍 Region → ${getRegion(token).label}`);
             }}
           />
+
+          {/* ── 🔒 Auth Simulation ────────────────────────────────────── */}
+          <AuthPanel authMode={authMode} onAuthModeChange={setAuthMode} />
 
           {/* ── Request Body + ⚡ Lambda Script (tabbed) ───────────────────── */}
           <BodyLambdaTabs

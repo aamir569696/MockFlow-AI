@@ -185,6 +185,30 @@ const handleMock = async (req, res, next) => {
       });
     }
 
+    // ── 4b. Auth Simulation gate ─────────────────────────────────────────
+    // When the session has auth enforcement enabled, every mock request must
+    // carry a valid credential — either `Authorization: Bearer <token>` or
+    // `x-api-key: <apiKey>`. Missing/invalid → 401, exactly like a real API.
+    const authConfig = SessionStore.getAuth(sessionId);
+    if (authConfig?.enabled) {
+      const authHeader = String(req.headers['authorization'] ?? '');
+      const bearer     = authHeader.replace(/^Bearer\s+/i, '').trim();
+      const apiKey     = String(req.headers['x-api-key'] ?? '').trim();
+
+      const validBearer = bearer && bearer === authConfig.token;
+      const validApiKey = apiKey && apiKey === authConfig.apiKey;
+
+      if (!validBearer && !validApiKey) {
+        res.setHeader('X-MockFlow-Session', sessionId);
+        res.setHeader('X-MockFlow-Slug',    endpointSlug);
+        res.setHeader('WWW-Authenticate',   'Bearer');
+        return res.status(401).json({
+          error:   'Unauthorized',
+          message: 'Missing or invalid API key',
+        });
+      }
+    }
+
     // ── 5. Error Response Simulator ──────────────────────────────────────
     // When the frontend sends x-mockflow-force-status, short-circuit with a
     // realistic JSON error body matching that status code — useful for testing
@@ -345,25 +369,37 @@ const handleMock = async (req, res, next) => {
         return res.status(201).json(newItem);
       }
 
-      // ── DELETE — remove item by id ────────────────────────────────────────
+      // ── DELETE — remove item by id (with first-item fallback) ─────────────
       if (method === 'DELETE') {
         // Accept id from: ?id=<uuid>  OR  req.body.id
-        const itemId = req.query.id ?? req.body?.id ?? null;
+        let itemId = req.query.id ?? req.body?.id ?? null;
 
+        // Fallback: if the client provides no explicit id, delete the FIRST
+        // item currently in this resource's live collection instead of
+        // rejecting with a 400 — a smoother demo journey ("just delete one").
+        // The collection is seeded on first access, so it's normally non-empty.
         if (!itemId) {
-          return res.status(400).json({
+          const items = SessionStore.getCollection(sessionId, collectionKey);
+          if (items && items.length > 0) {
+            itemId = items[0].id;
+          }
+        }
+
+        res.setHeader('X-MockFlow-Session',    sessionId);
+        res.setHeader('X-MockFlow-Slug',       endpointSlug);
+        res.setHeader('X-MockFlow-Collection', 'stateful');
+
+        // Only a genuinely empty collection leaves us with nothing to delete.
+        if (!itemId) {
+          return res.status(404).json({
             error: {
-              code:    'MISSING_ITEM_ID',
-              message: 'Provide the item id via ?id=<uuid> query param or request body { id }.',
+              code:    'COLLECTION_EMPTY',
+              message: `Collection '${collectionKey}' has no items to delete.`,
             },
           });
         }
 
         const removed = SessionStore.deleteFromCollection(sessionId, collectionKey, itemId);
-
-        res.setHeader('X-MockFlow-Session',    sessionId);
-        res.setHeader('X-MockFlow-Slug',       endpointSlug);
-        res.setHeader('X-MockFlow-Collection', 'stateful');
 
         if (!removed) {
           return res.status(404).json({
@@ -374,6 +410,8 @@ const handleMock = async (req, res, next) => {
           });
         }
 
+        // Reflect which item was removed (useful when it was the fallback).
+        res.setHeader('X-MockFlow-Item-Id', String(itemId));
         return res.status(204).end();
       }
 

@@ -135,6 +135,9 @@ const TRANSIENT_RUNNER = {
   // Transient per-request result of running the lambda transform.
   lambdaError:     null,   // string | null — non-fatal; raw response still shown
   lambdaApplied:   false,  // true when the last render used the transform
+  // Authorization mode for the request: 'none' | 'apikey' | 'bearer'.
+  // When set, fireFetch auto-fills the matching header from authSim creds.
+  authMode:        'none',
 };
 
 export const usePlaygroundStore = create(
@@ -151,6 +154,30 @@ export const usePlaygroundStore = create(
       endpoints:       [],
       isGenerating:    false,   // transient — never persisted
       generateError:   null,    // transient
+
+      // ── Natural-language schema editing (transient) ────────────────────
+      isEditingSchema: false,   // transient — request in flight
+      editError:       null,    // transient — surfaced to the edit bar
+      lastEditSummary: null,    // transient — { summary, affectedEndpoints[] }
+      schemaSnapshot:  null,    // transient — single-step undo buffer
+
+      // ── Auth simulation (transient — sourced from backend session) ──────
+      // { enabled, apiKey, token }. Mirrors the backend session auth config.
+      authSim:         { enabled: false, apiKey: '', token: '' },
+      authSimLoading:  false,
+
+      // ── AI Test Suite (transient) ───────────────────────────────────────
+      // cases: generated test cases; results: per-case outcomes after a run.
+      testSuite: {
+        cases:        [],      // generated test intents (from backend)
+        results:      [],      // [{ ...case, actualStatus, latency, pass, response, error }]
+        generating:   false,   // AI generation in flight
+        running:      false,   // execution in flight
+        currentIndex: 0,       // which test is executing (for "N of M")
+        summary:      null,    // { passed, total, pct }
+        error:        null,    // generation/exec error message
+        source:       null,    // 'ai' | 'local'
+      },
 
       // ── Compile-time telemetry (transient) ────────────────────────────
       // Populated after every successful generate() call.
@@ -186,6 +213,8 @@ export const usePlaygroundStore = create(
             // Preserve the Lambda Script + enabled flag across endpoint switches.
             lambdaScript:  state.runner.lambdaScript ?? DEFAULT_LAMBDA_SCRIPT,
             lambdaEnabled: state.runner.lambdaEnabled ?? false,
+            // Preserve the Authorization mode across endpoint switches.
+            authMode:      state.runner.authMode ?? 'none',
           },
         })),
 
@@ -425,6 +454,242 @@ export const usePlaygroundStore = create(
       },
 
       /**
+       * Natural-language schema edit.
+       * Sends the current schema + endpoints + instruction to the AI, applies
+       * the returned full definition, and stores a single-step undo snapshot.
+       * On ambiguous/failed edits, sets editError and leaves state untouched.
+       */
+      editSchema: async (instruction) => {
+        const { generatedSchema, endpoints, apiName, apiDescription } = get();
+        if (!instruction?.trim() || !generatedSchema) return;
+
+        // Snapshot BEFORE the edit for single-step undo.
+        const snapshot = {
+          apiName,
+          apiDescription,
+          generatedSchema: JSON.parse(JSON.stringify(generatedSchema)),
+          endpoints: JSON.parse(JSON.stringify(endpoints)),
+        };
+
+        set({ isEditingSchema: true, editError: null, lastEditSummary: null });
+        try {
+          const data = await mockService.editSchema(instruction.trim(), generatedSchema, endpoints);
+
+          if (data.sessionId) {
+            mockService.setSessionId(data.sessionId);
+          }
+
+          set({
+            sessionId:       data.sessionId ?? get().sessionId,
+            apiName:         data.apiName        ?? apiName,
+            apiDescription:  data.description    ?? apiDescription,
+            generatedSchema: data.schema         ?? generatedSchema,
+            endpoints:       data.endpoints      ?? endpoints,
+            // Selecting an endpoint that may no longer exist would be stale.
+            activeEndpoint:  null,
+            schemaSnapshot:  snapshot,
+            lastEditSummary: {
+              summary:           data.changeSummary ?? 'Schema updated.',
+              affectedEndpoints: data.affectedEndpoints ?? [],
+            },
+          });
+          return { ok: true };
+        } catch (err) {
+          const status = err.response?.status;
+          const msg = err.response?.data?.error?.message
+            ?? (status === 422
+              ? 'That instruction was unclear. Try rephrasing it.'
+              : err.message ?? 'Edit failed. Please try again.');
+          set({ editError: msg });
+          return { ok: false, error: msg };
+        } finally {
+          set({ isEditingSchema: false });
+        }
+      },
+
+      /**
+       * Revert the most recent schema edit (single-step undo).
+       * Restores the pre-edit snapshot and clears it so undo is one-shot.
+       */
+      undoSchemaEdit: () => {
+        const snap = get().schemaSnapshot;
+        if (!snap) return;
+        set({
+          apiName:         snap.apiName,
+          apiDescription:  snap.apiDescription,
+          generatedSchema: snap.generatedSchema,
+          endpoints:       snap.endpoints,
+          activeEndpoint:  null,
+          schemaSnapshot:  null,
+          lastEditSummary: null,
+          editError:       null,
+        });
+        // Re-register the reverted definition on the backend so live mock
+        // routes match the restored schema again.
+        get().rehydrateBackend?.();
+      },
+
+      /** Dismiss the edit summary / error banners without undoing. */
+      clearEditFeedback: () => set({ lastEditSummary: null, editError: null }),
+
+      // ── Auth simulation actions ────────────────────────────────────────
+
+      /** Set the request Authorization mode: 'none' | 'apikey' | 'bearer'. */
+      setAuthMode: (authMode) =>
+        set((state) => ({ runner: { ...state.runner, authMode } })),
+
+      /** Load the current auth-sim config from the backend session. */
+      loadAuthSim: async () => {
+        try {
+          const data = await mockService.authControl('get');
+          set({ authSim: { enabled: data.enabled, apiKey: data.apiKey, token: data.token } });
+        } catch {
+          /* non-fatal — leave defaults */
+        }
+      },
+
+      /**
+       * Enable/disable auth enforcement on the backend session.
+       *
+       * IMPORTANT: enabling does NOT auto-attach a credential. The request
+       * Authorization mode stays 'none' so that firing a request right after
+       * turning auth on correctly returns 401 — the whole point of the feature.
+       * The user must explicitly pick "Bearer Token" or "API Key" to send a
+       * valid credential. Disabling resets the mode to 'none'.
+       */
+      setAuthEnabled: async (enabled) => {
+        set({ authSimLoading: true });
+        try {
+          const data = await mockService.authControl(enabled ? 'enable' : 'disable');
+          set((state) => ({
+            authSim: { enabled: data.enabled, apiKey: data.apiKey, token: data.token },
+            // Never auto-authenticate. On disable, clear back to 'none'.
+            runner: {
+              ...state.runner,
+              authMode: enabled ? state.runner.authMode : 'none',
+            },
+          }));
+          return data;
+        } catch (err) {
+          return { error: err.message };
+        } finally {
+          set({ authSimLoading: false });
+        }
+      },
+
+      /** Regenerate the API key + token (invalidates the old credentials). */
+      regenerateAuthKey: async () => {
+        set({ authSimLoading: true });
+        try {
+          const data = await mockService.authControl('regenerate');
+          set({ authSim: { enabled: data.enabled, apiKey: data.apiKey, token: data.token } });
+          return data;
+        } catch (err) {
+          return { error: err.message };
+        } finally {
+          set({ authSimLoading: false });
+        }
+      },
+
+      // ── AI Test Suite actions ──────────────────────────────────────────
+
+      /** Fetch a freshly-generated AI test suite for the current session. */
+      generateTestSuite: async () => {
+        set((s) => ({ testSuite: { ...s.testSuite, generating: true, error: null, results: [], summary: null } }));
+        try {
+          const data = await mockService.generateTests();
+          set((s) => ({
+            testSuite: {
+              ...s.testSuite,
+              cases:      data.cases ?? [],
+              source:     data._source ?? (data.cases?.length ? 'ai' : null),
+              generating: false,
+            },
+          }));
+          return { ok: true, count: data.cases?.length ?? 0 };
+        } catch (err) {
+          const msg = err.response?.data?.error?.message ?? err.message ?? 'Could not generate tests.';
+          set((s) => ({ testSuite: { ...s.testSuite, generating: false, error: msg } }));
+          return { ok: false, error: msg };
+        }
+      },
+
+      /**
+       * Execute the generated test cases against the REAL mock endpoints.
+       * Each case fires through mockService.runRequest (same HTTP path the app
+       * uses everywhere), applying the per-case auth header, and its actual
+       * status is compared to the backend-computed expectedStatus.
+       *
+       * @param {boolean} [onlyFailed] — re-run just the previously-failed cases.
+       */
+      runTestSuite: async (onlyFailed = false) => {
+        const { testSuite, sessionId, authSim } = get();
+        // Choose the run set: all cases, or only cases whose last result failed.
+        let runCases = testSuite.cases;
+        if (onlyFailed && testSuite.results.length) {
+          const failedIds = new Set(testSuite.results.filter((r) => !r.pass).map((r) => r.id));
+          runCases = testSuite.cases.filter((c) => failedIds.has(c.id));
+        }
+        if (!runCases.length) return;
+
+        // Preserve prior results for cases NOT being re-run (partial re-run).
+        const priorById = new Map(testSuite.results.map((r) => [r.id, r]));
+
+        set((s) => ({ testSuite: { ...s.testSuite, running: true, currentIndex: 0, error: null } }));
+
+        const freshResults = [];
+        for (let i = 0; i < runCases.length; i++) {
+          const c = runCases[i];
+          set((s) => ({ testSuite: { ...s.testSuite, currentIndex: i + 1 } }));
+
+          // Build the request URL (store-relative; mockService prefixes /api).
+          const qs  = c.query?.id ? `?id=${encodeURIComponent(c.query.id)}` : '';
+          const url = `/mock/${sessionId}/${c.slug}${qs}`;
+
+          // Apply auth header only when the case intends to authenticate AND
+          // auth is enabled — a Bearer token, mirroring the workbench.
+          const headers = {};
+          if (c.useAuth && authSim.enabled && authSim.token) {
+            headers['Authorization'] = `Bearer ${authSim.token}`;
+          }
+
+          // eslint-disable-next-line no-await-in-loop
+          const result = await mockService.runRequest(
+            { method: c.method, url },
+            { body: c.body ?? undefined, headers },
+          );
+
+          const actualStatus = result.status;
+          const pass = actualStatus === c.expectedStatus;
+          freshResults.push({
+            ...c,
+            actualStatus,
+            latency:  result.latency ?? null,
+            pass,
+            response: result.response ?? null,
+            error:    result.error ?? null,
+          });
+        }
+
+        // Merge: fresh results override, prior results kept for untouched cases.
+        for (const r of freshResults) priorById.set(r.id, r);
+        // Keep stable order matching testSuite.cases.
+        const merged = testSuite.cases.map((c) => priorById.get(c.id)).filter(Boolean);
+
+        const passed = merged.filter((r) => r.pass).length;
+        const total  = merged.length;
+        set((s) => ({
+          testSuite: {
+            ...s.testSuite,
+            running:      false,
+            currentIndex: 0,
+            results:      merged,
+            summary:      { passed, total, pct: total ? Math.round((passed / total) * 100) : 0 },
+          },
+        }));
+      },
+
+      /**
        * Fire a live HTTP request to the mock endpoint.
        */
       fireFetch: async () => {
@@ -456,6 +721,17 @@ export const usePlaygroundStore = create(
                 // still override it if the user wants to.
                 if (runner.region) {
                   h['x-mockflow-region'] = String(runner.region);
+                }
+
+                // Auth simulation — auto-fill the credential header for the
+                // selected Authorization mode. Placed before custom headers so
+                // an explicit custom row still wins. 'none' sends nothing (so
+                // the user can deliberately trigger a 401 when auth is on).
+                const { authSim } = get();
+                if (runner.authMode === 'bearer' && authSim.token) {
+                  h['Authorization'] = `Bearer ${authSim.token}`;
+                } else if (runner.authMode === 'apikey' && authSim.apiKey) {
+                  h['x-api-key'] = authSim.apiKey;
                 }
 
                 // Merge custom headers from the Headers Playground.
@@ -556,6 +832,7 @@ export const usePlaygroundStore = create(
           body:          state.runner.body,
           lambdaScript:  state.runner.lambdaScript,
           lambdaEnabled: state.runner.lambdaEnabled,
+          authMode:      state.runner.authMode,
         },
       }),
 

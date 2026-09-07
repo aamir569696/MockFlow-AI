@@ -93,7 +93,7 @@ export default function LandingPage() {
                         backdrop-blur-sm">
           <span className="h-1.5 w-1.5 rounded-full bg-brand-400 animate-pulse" />
           <span className="text-xs font-medium text-brand-300 tracking-wide">
-            Powered by Gemini 1.5 Flash · Zero cost · No sign-up
+            Powered by Gemini 2.5 Flash · Zero cost · No sign-up
           </span>
         </div>
 

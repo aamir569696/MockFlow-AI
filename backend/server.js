@@ -13,6 +13,7 @@ import generateRoutes from './routes/generate.js';
 import endpointRoutes from './routes/endpoints.js';
 import mockRoutes from './routes/mock.js';
 import trafficRoutes from './routes/traffic.js';
+import docsRoutes from './routes/docs.js';
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -56,6 +57,7 @@ app.use('/api/generate', generateRoutes);
 app.use('/api/endpoints', endpointRoutes);
 app.use('/api/mock', mockRoutes);
 app.use('/api/traffic', trafficRoutes);
+app.use('/api/docs', docsRoutes);
 
 // ── 404 + global error handler ────────────────────────────────────────────────
 app.use(notFoundHandler);

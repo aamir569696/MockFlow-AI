@@ -9,7 +9,13 @@ export function guestSessionMiddleware(req, res, next) {
   const existingSession = req.headers['x-mockflow-session'];
 
   if (existingSession) {
-    req.sessionId = existingSession;
+    // Canonicalise to trimmed lowercase so the session key is IDENTICAL across
+    // every route. The mock route (routes/mock.js) lowercases the path session
+    // before store lookups; without matching normalisation here, enabling auth
+    // (header session) and firing a request (path session) could hit two
+    // different Map keys if the UUID carried any uppercase hex — silently
+    // bypassing the 401 gate. Normalising in one place keeps them in sync.
+    req.sessionId = String(existingSession).trim().toLowerCase();
   } else {
     const newSessionId = uuidv4();
     req.sessionId = newSessionId;

@@ -29,10 +29,45 @@
  * Sessions are evicted after GUEST_SESSION_TTL_MS of inactivity.
  */
 
-import { randomUUID } from 'crypto';
+import { randomUUID, randomBytes } from 'crypto';
 
 const GUEST_SESSION_TTL_MS   = 60 * 60 * 1000;  // 60 minutes
 const CLEANUP_INTERVAL_MS    = 15 * 60 * 1000;  // 15 minutes
+
+// ── Auth-simulation credential generators ──────────────────────────────────────
+const b64url = (buf) =>
+  Buffer.from(buf).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+/** Generate a fake but realistic API key, e.g. "mf_live_a1b2…" (32 hex chars). */
+function generateApiKey() {
+  return `mf_live_${randomBytes(16).toString('hex')}`;
+}
+
+/**
+ * Generate a fake JWT-style token (header.payload.signature, base64url).
+ * NOT cryptographically signed — it's a simulation artifact for demos.
+ */
+function generateToken(sessionId) {
+  const header  = b64url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
+  const payload = b64url(JSON.stringify({
+    sub: sessionId,
+    iss: 'mockflow-ai',
+    iat: Math.floor(Date.now() / 1000),
+    jti: randomUUID(),
+  }));
+  const signature = b64url(randomBytes(24));
+  return `${header}.${payload}.${signature}`;
+}
+
+/** Build a fresh auth config object. */
+function makeAuthConfig(sessionId, enabled = false) {
+  return {
+    enabled,
+    apiKey: generateApiKey(),
+    token:  generateToken(sessionId),
+    updatedAt: Date.now(),
+  };
+}
 
 /** @type {Map<string, { endpoints: Map<string, object>, collections: Map<string, object[]>, createdAt: number, lastAccessedAt: number }>} */
 const store = new Map();
@@ -56,6 +91,8 @@ export const SessionStore = {
         endpoints:       new Map(),
         collections:     new Map(),   // ← stateful collection arrays
         traffic:         [],          // ← rolling inbound HTTP event log (max 100)
+        meta:            null,        // ← { apiName, description, schema } for docs
+        auth:            makeAuthConfig(sessionId, false), // ← auth-sim config
         createdAt:       Date.now(),
         lastAccessedAt:  Date.now(),
       });
@@ -98,6 +135,109 @@ export const SessionStore = {
       if (exact) return exact;
     }
     return session.endpoints.get(slug) ?? null;
+  },
+
+  /**
+   * List every registered endpoint definition for a session (deduplicated).
+   * The store keeps both `slug:METHOD` keys and a bare `slug` alias, so we
+   * dedupe by the composite `slug:method` identity. Returns [] if unknown.
+   *
+   * @param {string} sessionId
+   * @returns {object[]}
+   */
+  getAllEndpoints(sessionId) {
+    const session = store.get(sessionId);
+    if (!session) return [];
+    session.lastAccessedAt = Date.now();
+    const seen = new Map();
+    for (const def of session.endpoints.values()) {
+      if (!def) continue;
+      const id = `${def.slug}:${(def.method ?? 'GET').toUpperCase()}`;
+      if (!seen.has(id)) seen.set(id, def);
+    }
+    return [...seen.values()];
+  },
+
+  /**
+   * Remove all endpoint definitions for a session (used when re-registering a
+   * fresh endpoint set after a schema edit). Leaves stateful collection data
+   * intact — it re-seeds lazily on the next GET.
+   *
+   * @param {string} sessionId
+   */
+  clearEndpoints(sessionId) {
+    const session = store.get(sessionId);
+    if (!session) return;
+    session.endpoints.clear();
+    session.lastAccessedAt = Date.now();
+  },
+
+  /**
+   * Persist session-level metadata (API name, description, resource schema map)
+   * so read-only consumers like the public docs page can reconstruct the full
+   * API without the original generation prompt.
+   *
+   * @param {string} sessionId
+   * @param {{ apiName?: string, description?: string, schema?: object }} meta
+   */
+  setMeta(sessionId, meta) {
+    const session = this.getOrCreate(sessionId);
+    session.meta = { ...(session.meta ?? {}), ...meta, updatedAt: Date.now() };
+  },
+
+  /**
+   * Retrieve session-level metadata. Returns null if none stored.
+   * @param {string} sessionId
+   * @returns {object|null}
+   */
+  getMeta(sessionId) {
+    const session = store.get(sessionId);
+    if (!session) return null;
+    session.lastAccessedAt = Date.now();
+    return session.meta ?? null;
+  },
+
+  // ── Auth-Simulation API ─────────────────────────────────────────────────
+
+  /**
+   * Get the auth-sim config for a session ({ enabled, apiKey, token }).
+   * Auto-creates the session (and a fresh disabled config) if missing so the
+   * client always gets a stable key/token to display.
+   *
+   * @param {string} sessionId
+   * @returns {{ enabled: boolean, apiKey: string, token: string, updatedAt: number }}
+   */
+  getAuth(sessionId) {
+    const session = this.getOrCreate(sessionId);
+    if (!session.auth) session.auth = makeAuthConfig(sessionId, false);
+    return session.auth;
+  },
+
+  /**
+   * Enable or disable auth enforcement for a session. Preserves the existing
+   * key/token. Returns the updated config.
+   *
+   * @param {string} sessionId
+   * @param {boolean} enabled
+   */
+  setAuthEnabled(sessionId, enabled) {
+    const session = this.getOrCreate(sessionId);
+    if (!session.auth) session.auth = makeAuthConfig(sessionId, false);
+    session.auth = { ...session.auth, enabled: !!enabled, updatedAt: Date.now() };
+    return session.auth;
+  },
+
+  /**
+   * Regenerate the API key + token (invalidates the old credentials).
+   * Preserves the current enabled flag. Returns the new config.
+   *
+   * @param {string} sessionId
+   */
+  regenerateAuth(sessionId) {
+    const session = this.getOrCreate(sessionId);
+    const wasEnabled = session.auth?.enabled ?? false;
+    session.auth = makeAuthConfig(sessionId, wasEnabled);
+    return session.auth;
   },
 
   // ── Stateful Collection API ─────────────────────────────────────────────

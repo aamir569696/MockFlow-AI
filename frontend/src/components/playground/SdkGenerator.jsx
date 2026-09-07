@@ -46,10 +46,16 @@ function sampleBody(ep, schema) {
 
 // ── Snippet builders — one per runtime ────────────────────────────────────────
 
-function buildSnippet(lang, { method, url, body, hasBody, session }) {
+function buildSnippet(lang, { method, url, body, hasBody, session, auth }) {
   const jsonBody   = JSON.stringify(body, null, 2);
   const jsonInline = JSON.stringify(body);
   const M = method.toUpperCase();
+
+  // Auth header pieces — empty strings when auth is disabled, so snippets are
+  // unchanged. `auth` is { name, value } (e.g. { Authorization, Bearer <tok> }).
+  const aName = auth?.name;
+  const aVal  = auth?.value;
+  const hasAuth = Boolean(aName && aVal);
 
   switch (lang) {
     case 'fetch':
@@ -57,7 +63,7 @@ function buildSnippet(lang, { method, url, body, hasBody, session }) {
   method: "${M}",
   headers: {
     "Content-Type": "application/json",
-    "x-mockflow-session": "${session}"
+    "x-mockflow-session": "${session}"${hasAuth ? `,\n    "${aName}": "${aVal}"` : ''}
   }${hasBody ? `,\n  body: JSON.stringify(${jsonBody.replace(/\n/g, '\n  ')})` : ''}
 });
 const data = await res.json();
@@ -71,7 +77,7 @@ const { data } = await axios({
   url: "${url}",
   headers: {
     "Content-Type": "application/json",
-    "x-mockflow-session": "${session}"
+    "x-mockflow-session": "${session}"${hasAuth ? `,\n    "${aName}": "${aVal}"` : ''}
   }${hasBody ? `,\n  data: ${jsonBody.replace(/\n/g, '\n  ')}` : ''}
 });
 console.log(data);`;
@@ -83,7 +89,7 @@ resp = requests.${M.toLowerCase()}(
     "${url}",
     headers={
         "Content-Type": "application/json",
-        "x-mockflow-session": "${session}",
+        "x-mockflow-session": "${session}",${hasAuth ? `\n        "${aName}": "${aVal}",` : ''}
     }${hasBody ? `,\n    json=${jsonInline.replace(/"/g, "'")}` : ''}
 )
 print(resp.json())`;
@@ -102,7 +108,7 @@ func main() {
     ${hasBody ? `payload := bytes.NewBufferString(\`${jsonInline}\`)` : `var payload io.Reader = nil`}
     req, _ := http.NewRequest("${M}", "${url}", payload)
     req.Header.Set("Content-Type", "application/json")
-    req.Header.Set("x-mockflow-session", "${session}")
+    req.Header.Set("x-mockflow-session", "${session}")${hasAuth ? `\n    req.Header.Set("${aName}", "${aVal}")` : ''}
 
     res, _ := http.DefaultClient.Do(req)
     defer res.Body.Close()
@@ -118,7 +124,7 @@ HttpClient client = HttpClient.newHttpClient();
 HttpRequest req = HttpRequest.newBuilder()
     .uri(URI.create("${url}"))
     .header("Content-Type", "application/json")
-    .header("x-mockflow-session", "${session}")
+    .header("x-mockflow-session", "${session}")${hasAuth ? `\n    .header("${aName}", "${aVal}")` : ''}
     .method("${M}", ${hasBody
       ? `HttpRequest.BodyPublishers.ofString("${jsonInline.replace(/"/g, '\\"')}")`
       : 'HttpRequest.BodyPublishers.noBody()'})
@@ -133,7 +139,7 @@ System.out.println(res.body());`;
 var req = URLRequest(url: URL(string: "${url}")!)
 req.httpMethod = "${M}"
 req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-req.setValue("${session}", forHTTPHeaderField: "x-mockflow-session")
+req.setValue("${session}", forHTTPHeaderField: "x-mockflow-session")${hasAuth ? `\nreq.setValue("${aVal}", forHTTPHeaderField: "${aName}")` : ''}
 ${hasBody ? `req.httpBody = """
 ${jsonBody}
 """.data(using: .utf8)` : ''}
@@ -148,7 +154,7 @@ val client = HttpClient.newHttpClient()
 val req = HttpRequest.newBuilder()
     .uri(URI.create("${url}"))
     .header("Content-Type", "application/json")
-    .header("x-mockflow-session", "${session}")
+    .header("x-mockflow-session", "${session}")${hasAuth ? `\n    .header("${aName}", "${aVal}")` : ''}
     .method("${M}", ${hasBody
       ? `HttpRequest.BodyPublishers.ofString(""" ${jsonInline} """)`
       : 'HttpRequest.BodyPublishers.noBody()'})
@@ -165,7 +171,7 @@ curl_setopt_array($ch, [
     CURLOPT_RETURNTRANSFER => true,
     CURLOPT_HTTPHEADER     => [
         "Content-Type: application/json",
-        "x-mockflow-session: ${session}",
+        "x-mockflow-session: ${session}",${hasAuth ? `\n        "${aName}: ${aVal}",` : ''}
     ],${hasBody ? `\n    CURLOPT_POSTFIELDS => '${jsonInline}',` : ''}
 ]);
 $response = curl_exec($ch);
@@ -183,7 +189,7 @@ http.use_ssl = uri.scheme == "https"
 
 req = Net::HTTP::${M.charAt(0) + M.slice(1).toLowerCase()}.new(uri)
 req["Content-Type"] = "application/json"
-req["x-mockflow-session"] = "${session}"
+req["x-mockflow-session"] = "${session}"${hasAuth ? `\nreq["${aName}"] = "${aVal}"` : ''}
 ${hasBody ? `req.body = ${jsonInline}.to_json` : ''}
 res = http.request(req)
 puts res.body`;
@@ -191,7 +197,7 @@ puts res.body`;
     case 'curl':
       return `curl -s -X ${M} "${url}" \\
   -H "Content-Type: application/json" \\
-  -H "x-mockflow-session: ${session}"${hasBody ? ` \\\n  -d '${jsonInline}'` : ''}`;
+  -H "x-mockflow-session: ${session}"${hasAuth ? ` \\\n  -H "${aName}: ${aVal}"` : ''}${hasBody ? ` \\\n  -d '${jsonInline}'` : ''}`;
 
     default:
       return '';
@@ -201,12 +207,22 @@ puts res.body`;
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function SdkGenerator() {
-  const { activeEndpoint, sessionId, generatedSchema, endpoints } = usePlaygroundStore();
+  const { activeEndpoint, sessionId, generatedSchema, endpoints, authSim, runner } = usePlaygroundStore();
   const [lang, setLang]     = useState('fetch');
   const [copied, setCopied] = useState(false);
 
   // Fall back to the first endpoint if none is explicitly active
   const ep = activeEndpoint ?? endpoints?.[0] ?? null;
+
+  // When auth is enabled, reflect the required credential header in every
+  // snippet — matching the mode selected in the Request Workbench (Bearer by
+  // default), so copied code works against the protected endpoint as-is.
+  const authMode = runner?.authMode ?? 'none';
+  const authHeader = authSim?.enabled
+    ? (authMode === 'apikey'
+        ? { name: 'x-api-key', value: authSim.apiKey }
+        : { name: 'Authorization', value: `Bearer ${authSim.token}` })
+    : null;
 
   const snippet = useMemo(() => {
     if (!ep || !sessionId) return '';
@@ -214,8 +230,8 @@ export default function SdkGenerator() {
     const url     = `${base}/api/mock/${sessionId}/${ep.slug}`;
     const hasBody = ['POST', 'PUT', 'PATCH'].includes(ep.method);
     const body    = hasBody ? sampleBody(ep, generatedSchema) : {};
-    return buildSnippet(lang, { method: ep.method, url, body, hasBody, session: sessionId });
-  }, [ep, sessionId, generatedSchema, lang]);
+    return buildSnippet(lang, { method: ep.method, url, body, hasBody, session: sessionId, auth: authHeader });
+  }, [ep, sessionId, generatedSchema, lang, authHeader]);
 
   const copy = () => {
     navigator.clipboard.writeText(snippet).catch(() => {});

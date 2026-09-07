@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { usePlaygroundStore } from '../../store/playgroundStore.js';
+import ModifySchemaBar from './ModifySchemaBar.jsx';
 
 // ── JSON tree node ────────────────────────────────────────────────────────────
 
@@ -515,7 +516,9 @@ export default function SchemaEditor() {
 
       {/* Body — only rendered when expanded */}
       {!collapsed && (
-      <div id="schema-body" className="animate-fade-in">
+      <div id="schema-body" className="flex flex-col gap-3 animate-fade-in">
+      {/* Natural-language schema editing */}
+      {generatedSchema && !isGenerating && <ModifySchemaBar />}
       {isGenerating ? (
         <div className="flex flex-col gap-2 animate-pulse">
           {[1, 4/5, 3/5, 4/5, 2/3].map((w, i) => (

@@ -2,6 +2,7 @@ import { Routes, Route } from 'react-router-dom';
 import LandingPage from './pages/LandingPage.jsx';
 import PlaygroundPage from './pages/PlaygroundPage.jsx';
 import DashboardPage from './pages/DashboardPage.jsx';
+import DocsPage from './pages/DocsPage.jsx';
 import NotFoundPage from './pages/NotFoundPage.jsx';
 import AuthModal from './components/auth/AuthModal.jsx';
 import SessionRehydrator from './components/SessionRehydrator.jsx';
@@ -31,6 +32,8 @@ function App() {
           <Route path="/" element={<LandingPage />} />
           <Route path="/playground" element={<PlaygroundPage />} />
           <Route path="/dashboard" element={<DashboardPage />} />
+          {/* Public, standalone, unauthenticated read-only API docs */}
+          <Route path="/docs/:sessionId" element={<DocsPage />} />
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </ErrorBoundary>

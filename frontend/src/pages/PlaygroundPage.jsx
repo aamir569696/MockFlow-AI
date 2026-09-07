@@ -8,6 +8,7 @@ import ExportDropdown from '../components/playground/ExportDropdown.jsx';
 import MockHistorySidebar from '../components/playground/MockHistorySidebar.jsx';
 import PurgeWorkspace from '../components/playground/PurgeWorkspace.jsx';
 import SandboxStudio from '../components/playground/SandboxStudio.jsx';
+import ShareDocsButton from '../components/playground/ShareDocsButton.jsx';
 import { usePlaygroundStore } from '../store/playgroundStore.js';
 import { useAuthStore } from '../store/authStore.js';
 
@@ -139,6 +140,9 @@ function NavBar() {
             </span>
           </span>
         )}
+
+        {/* Quick-access: Share Public Docs (renders only when an API exists) */}
+        <ShareDocsButton />
 
         {/* Export */}
         {endpoints.length > 0 && <ExportDropdown compact />}

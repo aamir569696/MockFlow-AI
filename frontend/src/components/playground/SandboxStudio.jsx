@@ -3,6 +3,8 @@ import { usePlaygroundStore } from '../../store/playgroundStore.js';
 import RequestRunner from './RequestRunner.jsx';
 import SdkGenerator from './SdkGenerator.jsx';
 import ExportDropdown from './ExportDropdown.jsx';
+import ShareDocs from './ShareDocs.jsx';
+import TestRunner from './TestRunner.jsx';
 
 /**
  * SandboxStudio — 3-tab workspace shell.
@@ -18,6 +20,9 @@ import ExportDropdown from './ExportDropdown.jsx';
  *                          in the background from the store's requestLog. Shows
  *                          an unseen-count badge on the tab when new entries
  *                          arrive while the user is elsewhere; clears on open.
+ *   🧪 Test Suite        — AI-generated QA test runner (generate/execute/report),
+ *                          isolated from the Monitor history. Shows a badge when
+ *                          a run completes while the user is on another tab.
  *   📦 Lab & Exports     — static reference only: Postman export + SDK snippets.
  *
  * Tabs change ONLY on explicit user click — there is no programmatic switch.
@@ -26,6 +31,7 @@ import ExportDropdown from './ExportDropdown.jsx';
 const STUDIO_TABS = [
   { id: 'workbench', label: 'Request Workbench', emoji: '🚀', accent: 'indigo'  },
   { id: 'monitor',   label: 'Monitor Console',   emoji: '📡', accent: 'emerald' },
+  { id: 'tests',     label: 'Test Suite',        emoji: '🧪', accent: 'sky'     },
   { id: 'lab',       label: 'Lab & Exports',     emoji: '📦', accent: 'purple'  },
 ];
 
@@ -33,6 +39,7 @@ const STUDIO_TABS = [
 const ACCENT_ACTIVE = {
   indigo:  'border-indigo-500 text-indigo-300 bg-indigo-950/30',
   emerald: 'border-emerald-500 text-emerald-300 bg-emerald-950/30',
+  sky:     'border-sky-500 text-sky-300 bg-sky-950/30',
   purple:  'border-purple-500 text-purple-300 bg-purple-950/30',
 };
 
@@ -164,12 +171,34 @@ export default function SandboxStudio() {
     if (newCount !== unseenCount) setUnseenCount(newCount);
   }, [requestLog, tab, unseenCount]);
 
-  // Explicit user tab click — the ONLY way tabs change. Opening Monitor marks
-  // the current top entry as seen and clears the badge.
+  // ── "New test run" badge for the Test Suite tab ──────────────────────────
+  // The store replaces testSuite.summary with a fresh object each completed run.
+  // If that happens while the user is on another tab, flag an unseen result.
+  const testSummary = usePlaygroundStore((s) => s.testSuite.summary);
+  const seenSummaryRef = useRef(testSummary);
+  const [testUnseen, setTestUnseen] = useState(false);
+
+  useEffect(() => {
+    if (tab === 'tests') {
+      seenSummaryRef.current = testSummary;
+      if (testUnseen) setTestUnseen(false);
+      return;
+    }
+    if (testSummary && testSummary !== seenSummaryRef.current) {
+      setTestUnseen(true);
+    }
+  }, [testSummary, tab, testUnseen]);
+
+  // Explicit user tab click — the ONLY way tabs change. Opening a tab clears
+  // that tab's notification badge.
   const handleTabClick = (id) => {
     if (id === 'monitor') {
       seenTopIdRef.current = requestLog[0]?.id ?? null;
       setUnseenCount(0);
+    }
+    if (id === 'tests') {
+      seenSummaryRef.current = testSummary;
+      setTestUnseen(false);
     }
     setTab(id);
   };
@@ -185,7 +214,8 @@ export default function SandboxStudio() {
       >
         {STUDIO_TABS.map((t) => {
           const active = tab === t.id;
-          const showBadge = t.id === 'monitor' && !active && unseenCount > 0;
+          const showMonitorBadge = t.id === 'monitor' && !active && unseenCount > 0;
+          const showTestBadge    = t.id === 'tests'   && !active && testUnseen;
           return (
             <button
               key={t.id}
@@ -207,8 +237,8 @@ export default function SandboxStudio() {
               <span className="hidden sm:inline">{t.label}</span>
               <span className="sm:hidden">{t.label.split(' ')[0]}</span>
 
-              {/* Unseen-entries notification badge on Monitor */}
-              {showBadge && (
+              {/* Unseen-entries count badge on Monitor */}
+              {showMonitorBadge && (
                 <span
                   className="absolute right-1.5 top-1 flex min-w-[1rem] items-center
                              justify-center rounded-full bg-emerald-500 px-1
@@ -216,6 +246,16 @@ export default function SandboxStudio() {
                   aria-label={`${unseenCount} new request${unseenCount !== 1 ? 's' : ''} logged`}
                 >
                   {unseenCount > 9 ? '9+' : unseenCount}
+                </span>
+              )}
+
+              {/* New-test-run dot badge on Test Suite */}
+              {showTestBadge && (
+                <span className="absolute right-2 top-1.5 flex h-2 w-2"
+                      aria-label="New test run completed">
+                  <span className="absolute inline-flex h-full w-full animate-ping
+                                   rounded-full bg-sky-400 opacity-60" />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-sky-400" />
                 </span>
               )}
             </button>
@@ -247,7 +287,18 @@ export default function SandboxStudio() {
           {tab === 'monitor' && <MonitorConsole requestLog={requestLog} />}
         </section>
 
-        {/* Tab 3 — Lab & Exports (static reference only) */}
+        {/* Tab 3 — Test Suite (AI-generated QA test runner) */}
+        <section
+          id="studio-panel-tests"
+          role="tabpanel"
+          aria-labelledby="studio-tab-tests"
+          hidden={tab !== 'tests'}
+          className={tab === 'tests' ? 'flex flex-col gap-4 animate-fade-in' : ''}
+        >
+          {tab === 'tests' && <TestRunner />}
+        </section>
+
+        {/* Tab 4 — Lab & Exports (static reference only) */}
         <section
           id="studio-panel-lab"
           role="tabpanel"
@@ -270,6 +321,9 @@ export default function SandboxStudio() {
                 </div>
                 <ExportDropdown />
               </div>
+
+              {/* Share a public, read-only docs link */}
+              <ShareDocs />
 
               <SdkGenerator />
             </>

@@ -38,6 +38,43 @@ export const mockService = {
   },
 
   /**
+   * POST /api/generate/edit — natural-language schema edit.
+   * Returns the full updated definition + changeSummary, or throws with the
+   * server's error payload attached for the caller to surface.
+   */
+  async editSchema(instruction, schema, endpoints) {
+    const { data } = await api.post('/generate/edit', { instruction, schema, endpoints });
+    return data;
+  },
+
+  /**
+   * GET /api/docs/:sessionId — public, read-only docs payload.
+   */
+  async fetchDocs(sessionId) {
+    const { data } = await api.get(`/docs/${sessionId}`);
+    return data;
+  },
+
+  /**
+   * POST /api/generate/auth — auth-simulation control.
+   * @param {'get'|'enable'|'disable'|'regenerate'} action
+   * @returns {{ enabled: boolean, apiKey: string, token: string }}
+   */
+  async authControl(action) {
+    const { data } = await api.post('/generate/auth', { action });
+    return data;
+  },
+
+  /**
+   * POST /api/generate/tests — AI-generated test suite for the current session.
+   * @returns {{ cases: object[], authEnabled: boolean, count: number }}
+   */
+  async generateTests() {
+    const { data } = await api.post('/generate/tests', {});
+    return data;
+  },
+
+  /**
    * Fire a live request to a mock endpoint.
    * Never throws — returns { status, response, latency, responseHeaders, error }.
    *
