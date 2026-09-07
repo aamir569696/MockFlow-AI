@@ -199,7 +199,7 @@ export default function MockHistorySidebar() {
       <div
         id="mock-history-list"
         className="smooth-scroll flex flex-col gap-2 overflow-y-auto p-2.5
-                   max-h-[calc(50dvh-44px)] transition-all duration-300 lg:max-h-[520px]"
+                   max-h-64 transition-all duration-300"
         data-lenis-prevent
         aria-live="polite"
       >

@@ -6,6 +6,7 @@ import SchemaEditor from '../components/playground/SchemaEditor.jsx';
 import SavePromptBanner from '../components/playground/SavePromptBanner.jsx';
 import ExportDropdown from '../components/playground/ExportDropdown.jsx';
 import MockHistorySidebar from '../components/playground/MockHistorySidebar.jsx';
+import PurgeWorkspace from '../components/playground/PurgeWorkspace.jsx';
 import SandboxStudio from '../components/playground/SandboxStudio.jsx';
 import { usePlaygroundStore } from '../store/playgroundStore.js';
 import { useAuthStore } from '../store/authStore.js';
@@ -356,16 +357,40 @@ export default function PlaygroundPage() {
             boxShadow: 'inset 0 0 25px rgba(99,102,241,0.06), 0 0 25px rgba(99,102,241,0.06)',
           }}
         >
-          <div className="hidden items-center gap-2 lg:flex">
+          {/* Section: Generate Input */}
+          <div className="flex items-center gap-2">
             <span className="h-px flex-1 bg-gray-800/60" />
             <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-700">
-              Input
+              Generate Input
             </span>
             <span className="h-px flex-1 bg-gray-800/60" />
           </div>
           <PromptPanel />
+
+          {/* Section: Recent History */}
+          <div className="flex items-center gap-2 pt-1">
+            <span className="h-px flex-1 bg-gray-800/60" />
+            <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-700">
+              History
+            </span>
+            <span className="h-px flex-1 bg-gray-800/60" />
+          </div>
           <MockHistorySidebar />
+
+          {/* Section: Schema (collapsed by default) */}
+          <div className="flex items-center gap-2 pt-1">
+            <span className="h-px flex-1 bg-gray-800/60" />
+            <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-700">
+              Schema
+            </span>
+            <span className="h-px flex-1 bg-gray-800/60" />
+          </div>
           <SchemaEditor />
+
+          {/* Danger Zone — pinned to the very bottom, isolated from Generate */}
+          <div className="mt-auto pt-2">
+            <PurgeWorkspace />
+          </div>
         </section>
 
         {/* RIGHT PANEL — Live Output */}

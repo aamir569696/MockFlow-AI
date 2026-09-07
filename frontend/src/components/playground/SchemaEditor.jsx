@@ -427,6 +427,9 @@ const TABS = ['graph', 'tree', 'raw', 'docs'];
 export default function SchemaEditor() {
   const { generatedSchema, isGenerating } = usePlaygroundStore();
   const [viewMode, setViewMode] = useState('graph');
+  // Collapsed by default — viewing the schema is a secondary action. The user
+  // expands it explicitly via the header chevron.
+  const [collapsed, setCollapsed] = useState(true);
 
   return (
     <div className="card flex flex-col gap-3"
@@ -437,10 +440,17 @@ export default function SchemaEditor() {
            ].join(', '),
            backgroundSize: '24px 24px, 100% 100%',
          }}>
-      {/* Header — title stays fixed; tab strip scrolls horizontally on mobile */}
+      {/* Header — click the title row to expand/collapse the schema views */}
       <div className="flex items-center justify-between gap-3">
-        <div className="flex shrink-0 items-center gap-2">
-          <div className="flex h-7 w-7 items-center justify-center rounded-lg
+        <button
+          type="button"
+          onClick={() => setCollapsed((c) => !c)}
+          className="group flex min-w-0 flex-1 items-center gap-2 rounded-lg text-left
+                     focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+          aria-expanded={!collapsed}
+          aria-controls="schema-body"
+        >
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg
                           bg-sky-600/20 ring-1 ring-sky-600/40">
             <svg className="h-4 w-4 text-sky-400" fill="none" viewBox="0 0 24 24"
                  stroke="currentColor" strokeWidth={2}>
@@ -448,11 +458,31 @@ export default function SchemaEditor() {
             </svg>
           </div>
           <h2 className="text-sm font-semibold text-gray-200">Schema</h2>
-        </div>
+          {generatedSchema && (
+            <span className="rounded-full bg-sky-950/60 px-1.5 py-0.5 font-mono
+                             text-[10px] font-bold text-sky-400 ring-1 ring-sky-800/50">
+              {Object.keys(generatedSchema).length}
+            </span>
+          )}
+          {collapsed && (
+            <span className="ml-1 hidden text-[10px] text-gray-700 sm:inline">
+              Graph · Tree · Raw · Docs
+            </span>
+          )}
+          {/* Chevron */}
+          <svg
+            className={`ml-auto h-4 w-4 shrink-0 text-gray-600 transition-transform
+                        duration-200 group-hover:text-gray-400
+                        ${collapsed ? '' : 'rotate-180'}`}
+            fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
 
-        {generatedSchema && (
+        {generatedSchema && !collapsed && (
           <div className="flex min-w-0 items-center gap-2 overflow-x-auto whitespace-nowrap
-                          scrollbar-none pb-1 w-full rounded-lg border border-gray-700
+                          scrollbar-none pb-1 rounded-lg border border-gray-700
                           bg-gray-800 p-0.5">
             {TABS.map((mode) => (
               <button
@@ -483,7 +513,9 @@ export default function SchemaEditor() {
         )}
       </div>
 
-      {/* Body */}
+      {/* Body — only rendered when expanded */}
+      {!collapsed && (
+      <div id="schema-body" className="animate-fade-in">
       {isGenerating ? (
         <div className="flex flex-col gap-2 animate-pulse">
           {[1, 4/5, 3/5, 4/5, 2/3].map((w, i) => (
@@ -578,6 +610,8 @@ export default function SchemaEditor() {
           </table>
         </div>
       ) : null}
+      </div>
+      )}
     </div>
   );
 }
