@@ -420,7 +420,7 @@ export default function EndpointPreview() {
       {/* ── Endpoint accordion list ────────────────────────────────────── */}
       {!isGenerating && endpoints.length > 0 && (
         <motion.ul
-          className="flex flex-col gap-1"
+          className="flex max-h-[38vh] flex-col gap-1 overflow-y-auto scrollbar-thin pr-1"
           role="list"
           variants={{
             hidden: {},

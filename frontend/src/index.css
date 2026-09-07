@@ -69,6 +69,27 @@
   .scrollbar-none::-webkit-scrollbar {
     display: none;                 /* Chrome / Safari / Edge */
   }
+
+  /* Slim scrollbar for internally-scrolling lists (e.g. the endpoint list).
+     Matches the global indigo thumb but keeps the rail compact. */
+  .scrollbar-thin {
+    scrollbar-width: thin;         /* Firefox */
+    scrollbar-color: rgba(99, 102, 241, 0.30) transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    border-radius: 9999px;
+    background: rgba(99, 102, 241, 0.30);
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background: rgba(99, 102, 241, 0.60);
+  }
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
 }
 
 @layer components {

@@ -201,16 +201,16 @@ function NavBar() {
 function SubHeader() {
   return (
     <div
-      className="relative border-b border-gray-800/40 px-4 py-5 sm:px-6"
+      className="relative border-b border-gray-800/40 px-4 py-3 sm:px-6"
       style={{
         background:
           'linear-gradient(180deg, rgba(15,23,42,0.75) 0%, rgba(3,7,18,0.0) 100%)',
       }}
     >
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
 
         {/* ── Headline + subtitle block ──────────────────────────────────── */}
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-0.5">
           {/* Gradient headline */}
           <h1
             className="text-lg font-extrabold leading-tight tracking-tight sm:text-xl"
