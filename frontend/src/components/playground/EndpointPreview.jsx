@@ -473,9 +473,12 @@ export default function EndpointPreview() {
                   {/* Method badge */}
                   <span className={`method-badge ${methodClass}`}>{ep.method ?? 'GET'}</span>
 
-                  {/* Path + description */}
+                  {/* Path + description — single line, ellipsis on tiny screens */}
                   <div className="flex min-w-0 flex-1 flex-col">
-                    <code className="break-all text-xs text-gray-300 group-hover:text-gray-100 transition-colors [word-break:break-all]">
+                    <code className="block max-w-[180px] overflow-hidden truncate whitespace-nowrap
+                                     font-mono text-xs text-gray-300 group-hover:text-gray-100
+                                     transition-colors sm:max-w-full"
+                          title={mockPath}>
                       {mockPath}
                     </code>
                     {ep.description && (

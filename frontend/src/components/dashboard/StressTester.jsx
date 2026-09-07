@@ -60,6 +60,9 @@ export default function StressTester() {
     const getEndpoints = endpoints.filter(e => e.method === 'GET');
     const pool = getEndpoints.length ? getEndpoints : endpoints;
 
+    // Prepend an explicit benchmark warning so the concurrent stress packets
+    // showing up in the Traffic Inspector aren't mistaken for real traffic.
+    pushLog(`⚠️ [BENCHMARK RUN IN PROGRESS] — Logging concurrent stress execution waves`, 'warn');
     pushLog(`⚡ Initialising stress run — ${intensity} concurrent hits`, 'accent');
     pushLog(`→ Target: ${apiName || 'Mock API'} · session ${sessionId.slice(0, 8)}…`, 'muted');
     pushLog(`→ Endpoint pool: ${pool.length} route${pool.length !== 1 ? 's' : ''}`, 'muted');
@@ -177,11 +180,12 @@ export default function StressTester() {
           </div>
         </div>
 
-        {/* Controls */}
-        <div className="flex items-center gap-2">
+        {/* Controls — stack full-width on mobile, inline row on sm+ */}
+        <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-center sm:gap-2">
           {/* Intensity select */}
-          <div className="flex items-center gap-1.5 rounded-lg border border-gray-700/60
-                          bg-gray-900/60 px-2 py-1">
+          <div className="flex w-full items-center justify-between gap-1.5 rounded-lg
+                          border border-gray-700/60 bg-gray-900/60 px-2 py-2
+                          sm:w-auto sm:justify-start sm:py-1">
             <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-600">
               Intensity
             </span>
@@ -204,10 +208,11 @@ export default function StressTester() {
           <button
             onClick={execute}
             disabled={disabled || running}
-            className={`flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-bold
-                        tracking-wide transition-all duration-200
+            className={`flex w-full items-center justify-center gap-2 rounded-lg px-4 py-2.5
+                        text-xs font-bold tracking-wide transition-all duration-200
                         focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400
                         disabled:cursor-not-allowed disabled:opacity-40
+                        sm:w-auto sm:py-2
                         ${running
                           ? 'bg-indigo-950/60 text-indigo-400 ring-1 ring-indigo-700/50'
                           : 'bg-indigo-600 text-white hover:bg-indigo-500'}`}
@@ -275,7 +280,7 @@ export default function StressTester() {
                 }}
               >
                 {log.map((l) => (
-                  <div key={l.id} className={`animate-fade-in ${toneClass[l.tone] ?? 'text-gray-400'}`}>
+                  <div key={l.id} className={`animate-fade-in break-words ${toneClass[l.tone] ?? 'text-gray-400'}`}>
                     <span className="select-none text-indigo-500/50">$ </span>{l.line}
                   </div>
                 ))}

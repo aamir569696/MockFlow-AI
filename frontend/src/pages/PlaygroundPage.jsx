@@ -3,11 +3,10 @@ import { Link } from 'react-router-dom';
 import PromptPanel from '../components/playground/PromptPanel.jsx';
 import EndpointPreview from '../components/playground/EndpointPreview.jsx';
 import SchemaEditor from '../components/playground/SchemaEditor.jsx';
-import RequestRunner from '../components/playground/RequestRunner.jsx';
 import SavePromptBanner from '../components/playground/SavePromptBanner.jsx';
 import ExportDropdown from '../components/playground/ExportDropdown.jsx';
 import MockHistorySidebar from '../components/playground/MockHistorySidebar.jsx';
-import SdkGenerator from '../components/playground/SdkGenerator.jsx';
+import SandboxStudio from '../components/playground/SandboxStudio.jsx';
 import { usePlaygroundStore } from '../store/playgroundStore.js';
 import { useAuthStore } from '../store/authStore.js';
 
@@ -229,7 +228,7 @@ function SubHeader() {
 
           {/* Subtitle */}
           <p
-            className="max-w-xl text-xs leading-relaxed"
+            className="max-w-xl px-1 text-sm leading-relaxed text-slate-400 sm:px-0"
             style={{ color: 'rgba(148,163,184,0.60)' }}
           >
             Type requirements in plain language —{' '}
@@ -242,8 +241,9 @@ function SubHeader() {
 
         {/* ── Gemini badge ───────────────────────────────────────────────── */}
         <div
-          className="flex shrink-0 items-center gap-2 self-start rounded-full
-                     px-3 py-1.5 sm:self-auto"
+          className="flex w-full max-w-full flex-wrap items-center justify-between gap-2
+                     self-start overflow-x-auto whitespace-nowrap scrollbar-none
+                     rounded-full px-3 py-1.5 text-xs sm:w-auto sm:self-auto sm:text-sm"
           style={{
             background:
               'linear-gradient(135deg, rgba(15,23,42,0.90) 0%, rgba(30,27,75,0.85) 100%)',
@@ -344,7 +344,7 @@ export default function PlaygroundPage() {
   const [activeTab, setActiveTab] = useState('input');
 
   return (
-    <div className="flex min-h-dvh flex-col bg-gray-950">
+    <div className="flex min-h-dvh flex-col overflow-x-hidden bg-gray-950">
       <NavBar />
       <SubHeader />
       <MobileTabs active={activeTab} onChange={setActiveTab} />
@@ -397,8 +397,7 @@ export default function PlaygroundPage() {
             <span className="h-px flex-1 bg-gray-800/60" />
           </div>
           <EndpointPreview />
-          <RequestRunner />
-          <SdkGenerator />
+          <SandboxStudio />
         </section>
       </main>
 

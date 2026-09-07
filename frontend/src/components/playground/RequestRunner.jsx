@@ -1055,9 +1055,149 @@ function RegionGateway({ value, onChange }) {
   );
 }
 
+// ── ⚡ Lambda Script editor ─────────────────────────────────────────────────────
+
+/**
+ * LambdaEditor — a code editor for the client-side response transform.
+ *
+ * SECURITY: the script runs in the USER'S OWN BROWSER (via the store's
+ * runLambdaTransform) against the response before rendering. It is NEVER sent
+ * to or executed on the server — no RCE surface.
+ */
+function LambdaEditor({ script, onChange, enabled, onEnabledChange }) {
+  const lineCount = script.split('\n').length;
+
+  return (
+    <div className="flex flex-col gap-2">
+      {/* Toolbar row */}
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          {/* Enable toggle */}
+          <button
+            type="button"
+            role="switch"
+            aria-checked={enabled}
+            onClick={() => onEnabledChange(!enabled)}
+            className={`relative flex h-5 w-9 shrink-0 items-center rounded-full
+                        transition-colors duration-200
+                        focus-visible:outline-none focus-visible:ring-2
+                        focus-visible:ring-indigo-500
+                        ${enabled ? 'bg-indigo-600' : 'bg-gray-700'}`}
+            aria-label="Toggle Lambda transform"
+          >
+            <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white
+                              transition-transform duration-200
+                              ${enabled ? 'translate-x-4' : 'translate-x-1'}`} />
+          </button>
+          <span className={`text-xs font-semibold ${enabled ? 'text-indigo-300' : 'text-gray-600'}`}>
+            {enabled ? 'Transform ON' : 'Transform OFF'}
+          </span>
+        </div>
+
+        <span className="font-mono text-[10px] text-gray-700 tabular-nums">
+          {lineCount} {lineCount === 1 ? 'line' : 'lines'} · runs in browser
+        </span>
+      </div>
+
+      {/* Code editor */}
+      <div className="relative">
+        <textarea
+          className="input min-h-[168px] resize-y font-mono text-[11px] leading-relaxed
+                     text-emerald-200/90 placeholder-gray-700 focus:border-indigo-500"
+          value={script}
+          onChange={(e) => onChange(e.target.value)}
+          spellCheck={false}
+          aria-label="Lambda transform script"
+          placeholder={'function transform(response) {\n  return response;\n}'}
+        />
+        {/* corner badge */}
+        <span className="pointer-events-none absolute right-2.5 top-2 rounded
+                         bg-indigo-950/70 px-1.5 py-0.5 font-mono text-[9px]
+                         font-semibold text-indigo-300 ring-1 ring-indigo-800/50">
+          transform(response)
+        </span>
+      </div>
+
+      {/* Safety note */}
+      <p className="flex items-start gap-1.5 text-[10px] leading-relaxed text-gray-600">
+        <svg className="mt-0.5 h-3 w-3 shrink-0 text-emerald-600" fill="none"
+             viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round"
+                d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        Runs sandboxed in your browser on the response — never sent to the server.
+      </p>
+    </div>
+  );
+}
+
+/**
+ * BodyLambdaTabs — small tab strip switching between the JSON Request Body
+ * (for mutating verbs) and the ⚡ Lambda Script transform editor.
+ */
+function BodyLambdaTabs({
+  method, body, onBodyChange,
+  lambdaScript, onLambdaChange, lambdaEnabled, onLambdaEnabledChange,
+}) {
+  const hasBody = ['POST', 'PUT', 'PATCH'].includes(method);
+  // Default to the body tab when it exists, else land on the lambda tab.
+  const [tab, setTab] = useState(hasBody ? 'body' : 'lambda');
+
+  // If the method changes such that the body tab disappears, fall back.
+  const activeTab = (!hasBody && tab === 'body') ? 'lambda' : tab;
+
+  const tabs = [
+    ...(hasBody ? [{ id: 'body', label: 'Request Body' }] : []),
+    { id: 'lambda', label: '⚡ Lambda Script' },
+  ];
+
+  return (
+    <div className="flex flex-col gap-2">
+      {/* Tab strip */}
+      <div className="flex items-center gap-1 overflow-x-auto whitespace-nowrap scrollbar-none">
+        {tabs.map((t) => {
+          const active = activeTab === t.id;
+          return (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setTab(t.id)}
+              className={`shrink-0 rounded-md px-2.5 py-1 text-xs font-semibold
+                          transition-all duration-150
+                          focus-visible:outline-none focus-visible:ring-2
+                          focus-visible:ring-indigo-500
+                          ${active
+                            ? 'bg-gray-800 text-gray-100 ring-1 ring-gray-700'
+                            : 'text-gray-600 hover:text-gray-300'}`}
+            >
+              {t.label}
+              {t.id === 'lambda' && lambdaEnabled && (
+                <span className="ml-1.5 inline-block h-1.5 w-1.5 rounded-full bg-indigo-400 align-middle" />
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Panel */}
+      {activeTab === 'body' && hasBody && (
+        <JsonBodyEditor value={body} onChange={onBodyChange} />
+      )}
+      {activeTab === 'lambda' && (
+        <LambdaEditor
+          script={lambdaScript}
+          onChange={onLambdaChange}
+          enabled={lambdaEnabled}
+          onEnabledChange={onLambdaEnabledChange}
+        />
+      )}
+    </div>
+  );
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
-export default function RequestRunner() {
+export default function RequestRunner({ view = 'all' }) {
   const {
     activeEndpoint,
     runner,
@@ -1065,11 +1205,23 @@ export default function RequestRunner() {
     setRunnerBody,
     setCustomHeaders,
     setRegion,
+    setLambdaScript,
+    setLambdaEnabled,
     fireFetch,
     sessionId,
   } = usePlaygroundStore();
 
-  const { method, url, body, isFiring, response, status, latency, error, responseHeaders, customHeaders = [], region = 'local' } = runner;
+  // Section visibility — lets the Sandbox Studio place the workbench controls
+  // and the monitor/telemetry output into separate tabs while a single store
+  // keeps them in perfect sync. 'all' preserves the original combined layout.
+  const showWorkbench = view === 'all' || view === 'workbench';
+  const showMonitor   = view === 'all' || view === 'monitor';
+
+  const {
+    method, url, body, isFiring, response, status, latency, error, responseHeaders,
+    customHeaders = [], region = 'local',
+    lambdaScript = '', lambdaEnabled = false, lambdaError = null, lambdaApplied = false,
+  } = runner;
   const activeRegion = getRegion(region);
   const hasResult = status !== null || error !== null;
 
@@ -1227,6 +1379,8 @@ export default function RequestRunner() {
         </div>
       ) : (
         <>
+         {showWorkbench && (
+          <>
           {/* ── Method + URL bar ──────────────────────────────────────────── */}
           <div className="flex min-w-0 items-center gap-2 rounded-lg border
                           border-gray-700 bg-gray-800/60 p-1">
@@ -1283,10 +1437,16 @@ export default function RequestRunner() {
             }}
           />
 
-          {/* ── Request body ──────────────────────────────────────────────── */}
-          {['POST', 'PUT', 'PATCH'].includes(method) && (
-            <JsonBodyEditor value={body} onChange={setRunnerBody} />
-          )}
+          {/* ── Request Body + ⚡ Lambda Script (tabbed) ───────────────────── */}
+          <BodyLambdaTabs
+            method={method}
+            body={body}
+            onBodyChange={setRunnerBody}
+            lambdaScript={lambdaScript}
+            onLambdaChange={setLambdaScript}
+            lambdaEnabled={lambdaEnabled}
+            onLambdaEnabledChange={setLambdaEnabled}
+          />
 
           {/* ── Fire button ───────────────────────────────────────────────── */}
           <button
@@ -1317,9 +1477,11 @@ export default function RequestRunner() {
               </>
             )}
           </button>
+          </>
+         )}
 
           {/* ── Result area ───────────────────────────────────────────────── */}
-          {hasResult && (
+          {showMonitor && hasResult && (
             <div className="flex flex-col gap-4">
 
               {/* Network error */}
@@ -1352,9 +1514,31 @@ export default function RequestRunner() {
               {/* ── Response body ─────────────────────────────────────────── */}
               {response !== null && response !== undefined && (
                 <div className="flex flex-col gap-1.5 animate-fade-in">
+                  {/* Non-fatal Lambda error — raw response is still shown below */}
+                  {lambdaError && (
+                    <div className="flex items-start gap-2 rounded-lg border border-amber-900/50
+                                    bg-amber-950/30 px-3 py-2 animate-fade-in">
+                      <svg className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-400" fill="none"
+                           viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round"
+                              d="M12 9v2m0 4h.01M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L14.7 3.9a2 2 0 00-3.4 0z" />
+                      </svg>
+                      <div className="min-w-0">
+                        <p className="text-xs font-semibold text-amber-300">⚡ Lambda transform skipped</p>
+                        <p className="mt-0.5 break-words font-mono text-[11px] text-amber-400/90">{lambdaError}</p>
+                      </div>
+                    </div>
+                  )}
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium uppercase tracking-widest text-gray-600">
+                    <span className="flex items-center gap-2 text-xs font-medium uppercase tracking-widest text-gray-600">
                       Response Body
+                      {lambdaApplied && !lambdaError && (
+                        <span className="rounded-full bg-indigo-950/60 px-2 py-0.5 font-mono
+                                         text-[10px] font-semibold normal-case tracking-normal
+                                         text-indigo-300 ring-1 ring-indigo-800/50">
+                          ⚡ Transformed
+                        </span>
+                      )}
                     </span>
                     <div className="flex items-center gap-2">
                       {payloadSize(response) && (
@@ -1391,6 +1575,32 @@ export default function RequestRunner() {
                   </div>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* ── Monitor empty state (before first fetch) ──────────────────── */}
+          {view === 'monitor' && !hasResult && (
+            <div
+              className="relative flex flex-col items-center justify-center overflow-hidden
+                         rounded-xl py-12 text-center animate-fade-in"
+              style={{
+                backgroundImage:
+                  'radial-gradient(circle, rgba(52,211,153,0.05) 1px, transparent 1px)',
+                backgroundSize: '20px 20px',
+              }}
+            >
+              <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl
+                              border border-emerald-900/40 bg-gray-900/80 ring-1 ring-emerald-900/20"
+                   style={{ boxShadow: '0 0 16px rgba(52,211,153,0.07)' }}>
+                <svg className="h-6 w-6 text-emerald-700" fill="none" viewBox="0 0 24 24"
+                     stroke="currentColor" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round"
+                        d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+              </div>
+              <p className="text-xs text-gray-600">
+                Fire a request from the Workbench to stream live telemetry here
+              </p>
             </div>
           )}
         </>

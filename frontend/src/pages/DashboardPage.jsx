@@ -184,9 +184,11 @@ function EndpointRow({ ep, index, sessionId }) {
         {ep.method}
       </span>
 
-      {/* Path */}
-      <code className="min-w-0 flex-1 break-all text-xs text-gray-300
-                       group-hover:text-gray-100 transition-colors">
+      {/* Path — single line, no wrapping; truncates with ellipsis if needed */}
+      <code className="block min-w-0 flex-1 max-w-[180px] overflow-hidden truncate
+                       whitespace-nowrap font-mono text-xs text-gray-300
+                       group-hover:text-gray-100 transition-colors sm:max-w-full"
+            title={`/api/mock/${sessionId?.slice(0, 8)}…/${ep.slug}`}>
         <span className="hidden sm:inline">/api/mock/{sessionId?.slice(0, 8)}…/</span>
         {ep.slug}
       </code>
@@ -425,6 +427,9 @@ export default function DashboardPage() {
 
   const [activeColIdx, setActiveColIdx] = useState(0);
 
+  // Right-pane monitoring sub-tab: 'traffic' | 'stress' | 'telemetry'
+  const [monitorTab, setMonitorTab] = useState('traffic');
+
   // Auth guard
   useEffect(() => {
     if (!isAuthenticated) navigate('/playground', { replace: true });
@@ -457,7 +462,7 @@ export default function DashboardPage() {
     : 100;
 
   return (
-    <div className="relative min-h-dvh bg-gray-950 text-gray-100">
+    <div className="relative min-h-dvh overflow-x-hidden bg-gray-950 text-gray-100">
 
       {/* ── Global background glows ──────────────────────────────────────── */}
       <div aria-hidden="true" className="pointer-events-none fixed inset-0 overflow-hidden">
@@ -605,11 +610,15 @@ export default function DashboardPage() {
           />
         </div>
 
-        {/* ── Main grid: collections sidebar + endpoint tree ───────────── */}
-        {/* Single column on mobile/tablet → side-by-side on lg+ */}
-        <div className="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-[240px_1fr]">
+        {/* ── Full-Width Vertical Sequential Grid ──────────────────────── */}
+        {/* Collections + Endpoint routers (full width) stacked above the    */}
+        {/* full-width tabbed monitoring command center.                     */}
+        <div className="mb-6 flex w-full flex-col gap-6">
 
-          {/* Collections sidebar */}
+          {/* ═══ ROW 1 — Collections directory + Endpoint routers (w-full) ═══ */}
+          <div className="flex w-full flex-col gap-5">
+
+          {/* Collections directory */}
           <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between">
               <h2 className="text-xs font-semibold uppercase tracking-widest text-gray-600">
@@ -644,11 +653,11 @@ export default function DashboardPage() {
             )}
           </div>
 
-          {/* Endpoint tree */}
+          {/* Endpoint routers */}
           <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between">
               <h2 className="text-xs font-semibold uppercase tracking-widest text-gray-600">
-                {activeCol ? activeCol.apiName : 'Endpoint Tree'}
+                {activeCol ? activeCol.apiName : 'Endpoint Routers'}
               </h2>
               {activeCol && (
                 <span className="text-xs text-gray-700">
@@ -704,12 +713,62 @@ export default function DashboardPage() {
               </div>
             )}
           </div>
-        </div>
+
+          </div>{/* ═══ END ROW 1 ═══ */}
+
+          {/* ═══ ROW 2 — Full-width tabbed monitoring command center ═══ */}
+          <div className="flex w-full flex-col gap-4">
+
+            {/* Sub-tab selector */}
+            <div
+              role="tablist"
+              aria-label="Monitoring views"
+              className="flex w-full items-stretch gap-1 rounded-2xl border border-gray-800/70
+                         bg-gray-900/50 p-1.5 backdrop-blur-sm"
+            >
+              {[
+                { id: 'traffic',   emoji: '📡', label: 'Traffic Inspector', accent: 'border-emerald-500 text-emerald-300 bg-emerald-950/30' },
+                { id: 'stress',    emoji: '🚀', label: 'Stress Laboratory', accent: 'border-indigo-500 text-indigo-300 bg-indigo-950/30'   },
+                { id: 'telemetry', emoji: '📊', label: 'Telemetry System',  accent: 'border-sky-500 text-sky-300 bg-sky-950/30'             },
+              ].map((t) => {
+                const active = monitorTab === t.id;
+                return (
+                  <button
+                    key={t.id}
+                    role="tab"
+                    aria-selected={active}
+                    aria-controls={`monitor-panel-${t.id}`}
+                    id={`monitor-tab-${t.id}`}
+                    onClick={() => setMonitorTab(t.id)}
+                    className={`flex flex-1 items-center justify-center gap-2 rounded-xl
+                                border-b-2 px-3 py-2.5 text-xs font-semibold tracking-wide
+                                transition-all duration-200
+                                focus-visible:outline-none focus-visible:ring-2
+                                focus-visible:ring-inset focus-visible:ring-indigo-500
+                                ${active
+                                  ? t.accent
+                                  : 'border-transparent text-gray-600 hover:bg-gray-800/40 hover:text-gray-300'}`}
+                  >
+                    <span className="text-sm leading-none" aria-hidden="true">{t.emoji}</span>
+                    <span className="hidden sm:inline">{t.label}</span>
+                    <span className="sm:hidden">{t.label.split(' ')[0]}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+        {/* ═══ TAB 1 — 📡 Traffic Inspector ═══ */}
+        <div
+          id="monitor-panel-traffic"
+          role="tabpanel"
+          aria-labelledby="monitor-tab-traffic"
+          hidden={monitorTab !== 'traffic'}
+          className={monitorTab === 'traffic' ? 'flex flex-col gap-4 animate-fade-in' : ''}
+        >
 
         {/* ── Live network log ─────────────────────────────────────────── */}
         <div className="rounded-2xl border border-gray-800/60
-                        bg-gray-900/30 backdrop-blur-sm overflow-hidden
-                        animate-fade-in" style={{ animationDelay: '0.2s' }}>
+                        bg-gray-900/30 backdrop-blur-sm overflow-hidden">
 
           {/* Log header */}
           <div className="flex items-center justify-between border-b border-gray-800/60
@@ -763,40 +822,57 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* ── Micro-Telemetry Panel ──────────────────────────────────── */}
-        <div className="rounded-2xl border border-gray-800/60 bg-gray-900/30
-                        backdrop-blur-sm overflow-hidden animate-fade-in"
-             style={{ animationDelay: '0.25s' }}>
-          {/* Header */}
-          <div className="flex items-center justify-between border-b border-gray-800/60
-                          bg-gray-900/60 px-4 py-2.5">
-            <div className="flex items-center gap-2">
-              <span className={`h-2 w-2 rounded-full ${compileMeta ? 'bg-sky-400 animate-pulse' : 'bg-gray-700'}`} />
-              <h2 className="text-xs font-semibold uppercase tracking-widest text-gray-500">
-                Compile Telemetry
-              </h2>
-            </div>
-            {compileMeta && (
-              <span className="rounded-full bg-gray-800 px-2 py-0.5 font-mono text-xs text-gray-600">
-                {compileMeta.totalMs} ms total
-              </span>
-            )}
-          </div>
-          <div className="px-4 py-3">
-            <MicroTelemetry compileMeta={compileMeta} />
-          </div>
-        </div>
+          {/* Live Traffic Webhook Inspector */}
+          <TrafficInspector />
 
-        {/* ── Performance Stress-Tester + Regression Log ───────────────── */}
-        <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-2">
+        </div>{/* ═══ END TAB 1 ═══ */}
+
+        {/* ═══ TAB 2 — 🚀 Stress Laboratory ═══ */}
+        <div
+          id="monitor-panel-stress"
+          role="tabpanel"
+          aria-labelledby="monitor-tab-stress"
+          hidden={monitorTab !== 'stress'}
+          className={monitorTab === 'stress' ? 'grid grid-cols-1 gap-6 animate-fade-in lg:grid-cols-2' : ''}
+        >
           <StressTester />
           <RegressionLog />
         </div>
 
-        {/* ── Live Traffic Webhook Inspector ───────────────────────────── */}
-        <div className="mt-6">
-          <TrafficInspector />
+        {/* ═══ TAB 3 — 📊 Telemetry System ═══ */}
+        <div
+          id="monitor-panel-telemetry"
+          role="tabpanel"
+          aria-labelledby="monitor-tab-telemetry"
+          hidden={monitorTab !== 'telemetry'}
+          className={monitorTab === 'telemetry' ? 'flex flex-col gap-4 animate-fade-in' : ''}
+        >
+          {/* ── Compile Telemetry Panel ──────────────────────────────── */}
+          <div className="rounded-2xl border border-gray-800/60 bg-gray-900/30
+                          backdrop-blur-sm overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-gray-800/60
+                            bg-gray-900/60 px-4 py-2.5">
+              <div className="flex items-center gap-2">
+                <span className={`h-2 w-2 rounded-full ${compileMeta ? 'bg-sky-400 animate-pulse' : 'bg-gray-700'}`} />
+                <h2 className="text-xs font-semibold uppercase tracking-widest text-gray-500">
+                  Compile Telemetry
+                </h2>
+              </div>
+              {compileMeta && (
+                <span className="rounded-full bg-gray-800 px-2 py-0.5 font-mono text-xs text-gray-600">
+                  {compileMeta.totalMs} ms total
+                </span>
+              )}
+            </div>
+            <div className="px-4 py-3">
+              <MicroTelemetry compileMeta={compileMeta} />
+            </div>
+          </div>
         </div>
+
+          </div>{/* ═══ END ROW 2 ═══ */}
+        </div>{/* ═══ END FULL-WIDTH VERTICAL GRID ═══ */}
 
         {/* ── Footer ───────────────────────────────────────────────────── */}
         <footer className="mt-8 text-center text-xs text-gray-800">

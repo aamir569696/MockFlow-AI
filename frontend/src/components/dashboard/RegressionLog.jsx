@@ -12,8 +12,31 @@ import { useState, useEffect, useCallback } from 'react';
  *   { id, timestamp, intensity, total, avgLatency, successRate, throughputKB }
  */
 
-const STORAGE_KEY = 'mockflow.regressionLog.v1';
+/** localStorage key for the Performance Regression Log history array. */
+export const REGRESSION_STORAGE_KEY = 'mockflow.regressionLog.v1';
+
+/** CustomEvent fired when the regression history is cleared globally, so any
+ *  live-mounted RegressionLog resets its in-memory state reactively. */
+export const REGRESSION_CLEAR_EVENT = 'mockflow:regressionclear';
+
+const STORAGE_KEY = REGRESSION_STORAGE_KEY;
 const MAX_RECORDS = 25;
+
+/**
+ * clearRegressionLog — global reset for the Performance Regression Log.
+ *
+ * Wipes the history from BOTH localStorage and sessionStorage (defensive —
+ * the key may exist in either depending on storage backend), then broadcasts
+ * REGRESSION_CLEAR_EVENT so a currently-mounted dashboard resets to zero
+ * without a reload. Safe to call from anywhere (e.g. the workspace purge).
+ */
+export function clearRegressionLog() {
+  try { localStorage.removeItem(REGRESSION_STORAGE_KEY); } catch { /* non-fatal */ }
+  try { sessionStorage.removeItem(REGRESSION_STORAGE_KEY); } catch { /* non-fatal */ }
+  try {
+    window.dispatchEvent(new CustomEvent(REGRESSION_CLEAR_EVENT));
+  } catch { /* SSR / no window — non-fatal */ }
+}
 
 function loadHistory() {
   try {
@@ -73,12 +96,20 @@ export default function RegressionLog() {
       });
     };
     window.addEventListener('mockflow:stressrun', onRun);
-    return () => window.removeEventListener('mockflow:stressrun', onRun);
+
+    // Reset reactively when the log is cleared globally (e.g. workspace purge).
+    const onClear = () => setHistory([]);
+    window.addEventListener(REGRESSION_CLEAR_EVENT, onClear);
+
+    return () => {
+      window.removeEventListener('mockflow:stressrun', onRun);
+      window.removeEventListener(REGRESSION_CLEAR_EVENT, onClear);
+    };
   }, []);
 
   const clearHistory = useCallback(() => {
     setHistory([]);
-    persist([]);
+    clearRegressionLog();   // wipe storage + broadcast to any other listeners
   }, []);
 
   // Derived trend: is the latest run faster/slower than the previous one?
@@ -155,14 +186,15 @@ export default function RegressionLog() {
           </div>
         ) : (
           <div className="flex flex-col gap-2">
-            {/* Column header row */}
-            <div className="grid grid-cols-[auto_1fr_auto_auto] items-center gap-3
-                            px-3 pb-1 text-[10px] font-semibold uppercase
-                            tracking-widest text-gray-600">
-              <span className="w-8">#</span>
+            {/* Column header row — fixed lanes for metric columns so labels
+                and values never overlap on narrow screens */}
+            <div className="grid grid-cols-[2rem_1fr_4.5rem_4.5rem] items-center gap-2
+                            px-3 pb-1 text-[10px] md:text-xs font-semibold uppercase
+                            tracking-widest text-gray-600 sm:gap-4 sm:px-4">
+              <span>#</span>
               <span>Timestamp</span>
-              <span className="text-right">Avg Latency</span>
-              <span className="text-right">Stability</span>
+              <span className="text-right leading-tight">Avg Latency</span>
+              <span className="text-right leading-tight">Stability</span>
             </div>
 
             {/* Rows */}
@@ -170,14 +202,15 @@ export default function RegressionLog() {
               {history.map((r, i) => (
                 <div
                   key={r.id}
-                  className={`grid grid-cols-[auto_1fr_auto_auto] items-center gap-3
+                  className={`grid grid-cols-[2rem_1fr_4.5rem_4.5rem] items-center gap-2
                               rounded-xl border px-3 py-2.5 transition-colors
+                              sm:gap-4 sm:px-4
                               ${i === 0
                                 ? 'border-indigo-600/40 bg-indigo-950/30'
                                 : 'border-gray-800/60 bg-gray-900/40 hover:bg-gray-900/70'}`}
                 >
                   {/* index + intensity badge */}
-                  <div className="flex w-8 flex-col items-start">
+                  <div className="flex flex-col items-start">
                     <span className="font-mono text-xs font-bold text-gray-500">
                       {history.length - i}
                     </span>
@@ -186,10 +219,12 @@ export default function RegressionLog() {
                     </span>
                   </div>
 
-                  {/* timestamp */}
-                  <div className="flex flex-col">
-                    <span className="text-xs text-gray-300">{formatTime(r.timestamp)}</span>
-                    <span className="text-[10px] text-gray-700">
+                  {/* timestamp — truncates so it never pushes the metric lanes */}
+                  <div className="flex min-w-0 flex-col">
+                    <span className="truncate text-xs md:text-sm text-gray-300">
+                      {formatTime(r.timestamp)}
+                    </span>
+                    <span className="truncate text-[10px] text-gray-700">
                       {r.total} requests · {Number(r.throughputKB ?? 0).toFixed(1)} KB
                     </span>
                   </div>
@@ -205,7 +240,7 @@ export default function RegressionLog() {
                         {delta <= 0 ? '▼' : '▲'}
                       </span>
                     )}
-                    <span className="font-mono text-sm font-bold tabular-nums"
+                    <span className="font-mono text-xs md:text-sm font-bold tabular-nums"
                           style={{ color: latencyColor(r.avgLatency) }}>
                       {Number(r.avgLatency).toFixed(1)}
                     </span>
@@ -214,9 +249,9 @@ export default function RegressionLog() {
 
                   {/* stability rate */}
                   <div className="flex items-center justify-end gap-1.5 text-right">
-                    <span className="h-1.5 w-1.5 rounded-full"
+                    <span className="h-1.5 w-1.5 shrink-0 rounded-full"
                           style={{ background: stabilityColor(r.successRate) }} />
-                    <span className="font-mono text-sm font-bold tabular-nums"
+                    <span className="font-mono text-xs md:text-sm font-bold tabular-nums"
                           style={{ color: stabilityColor(r.successRate) }}>
                       {Number(r.successRate).toFixed(1)}
                     </span>

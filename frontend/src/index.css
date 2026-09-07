@@ -25,6 +25,18 @@
   * { scrollbar-width: thin; scrollbar-color: rgba(99,102,241,0.30) transparent; }
 }
 
+@layer utilities {
+  /* Hide the scrollbar while keeping scroll functionality (used by the
+     horizontally-scrolling tab strips on mobile). */
+  .scrollbar-none {
+    -ms-overflow-style: none;      /* IE / old Edge */
+    scrollbar-width: none;         /* Firefox */
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;                 /* Chrome / Safari / Edge */
+  }
+}
+
 @layer components {
 
   /* ── Buttons ─────────────────────────────────────────────── */

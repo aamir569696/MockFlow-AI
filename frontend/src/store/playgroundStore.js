@@ -15,6 +15,102 @@ import { useHistoryStore } from './useHistoryStore.js';
  *   runner.response/status/latency/error/responseHeaders
  */
 
+/**
+ * Premium boilerplate for the ⚡ Lambda Script editor.
+ *
+ * The user writes a `transform(response)` function that returns a new/modified
+ * object. It runs entirely in the BROWSER against the fetched response, before
+ * the JSON is rendered in the Response Body console. Nothing is executed on the
+ * server — this is a purely client-side view transform.
+ */
+export const DEFAULT_LAMBDA_SCRIPT = `// ⚡ Lambda Script — runs in YOUR browser on the response before rendering.
+// Return the (possibly modified) value. Mutating and returning also works.
+//
+// Available: response (the parsed JSON body from the mock endpoint)
+
+function transform(response) {
+  // Example: stamp a computed field + a client timestamp onto an object.
+  if (response && typeof response === 'object' && !Array.isArray(response)) {
+    return {
+      ...response,
+      _transformedAt: new Date().toISOString(),
+    };
+  }
+
+  // Example: for a list, add a 1-based index to each item.
+  if (Array.isArray(response)) {
+    return response.map((item, i) => ({ position: i + 1, ...item }));
+  }
+
+  return response;
+}
+`;
+
+/**
+ * Run a user Lambda Script against a response, safely, in the browser.
+ *
+ * Hardening (client-side, best-effort — the code runs on the USER'S machine):
+ *   • Executed via new Function with a single `response` argument, no access to
+ *     the surrounding lexical scope.
+ *   • Deep-cloned input so a mutating script can't corrupt store state.
+ *   • Wrapped in try/catch; any throw returns the ORIGINAL response + an error.
+ *   • Output must be JSON-serialisable (guards against cyclic / non-cloneable
+ *     return values that would break rendering).
+ *
+ * @returns {{ value: any, applied: boolean, error: string|null }}
+ */
+export function runLambdaTransform(script, response) {
+  if (!script || !script.trim()) {
+    return { value: response, applied: false, error: null };
+  }
+
+  // Clone the input so the script cannot mutate the stored response object.
+  let input;
+  try {
+    input = typeof structuredClone === 'function'
+      ? structuredClone(response)
+      : JSON.parse(JSON.stringify(response));
+  } catch {
+    input = response;
+  }
+
+  try {
+    // Build an isolated function. The body defines `transform` and we call it.
+    // Only `response` is in scope — no closure over app internals.
+    // eslint-disable-next-line no-new-func
+    const factory = new Function(
+      'response',
+      `"use strict";
+       ${script}
+       if (typeof transform !== 'function') {
+         throw new Error('Define a function named "transform(response)".');
+       }
+       return transform(response);`
+    );
+
+    const result = factory(input);
+
+    // Ensure the result can be rendered / serialised without blowing up.
+    try {
+      JSON.stringify(result);
+    } catch {
+      return {
+        value: response,
+        applied: false,
+        error: 'Transform returned a non-serialisable value (e.g. a cycle or function).',
+      };
+    }
+
+    return { value: result, applied: true, error: null };
+  } catch (err) {
+    return {
+      value: response,
+      applied: false,
+      error: err?.message ? String(err.message) : 'Lambda transform failed.',
+    };
+  }
+}
+
 const TRANSIENT_RUNNER = {
   method:          'GET',
   url:             '',
@@ -32,6 +128,13 @@ const TRANSIENT_RUNNER = {
   // Global Edge Regional Gateway — selected region token sent as the
   // x-mockflow-region header. Drives simulated edge latency on the backend.
   region:          'local',
+  // ⚡ Lambda Script — a client-side transform run in the BROWSER (never on the
+  // server) against the response before rendering. See DEFAULT_LAMBDA_SCRIPT.
+  lambdaScript:    DEFAULT_LAMBDA_SCRIPT,
+  lambdaEnabled:   false,
+  // Transient per-request result of running the lambda transform.
+  lambdaError:     null,   // string | null — non-fatal; raw response still shown
+  lambdaApplied:   false,  // true when the last render used the transform
 };
 
 export const usePlaygroundStore = create(
@@ -80,6 +183,9 @@ export const usePlaygroundStore = create(
             customHeaders: state.runner.customHeaders ?? [],
             // Preserve the selected edge region across endpoint switches.
             region:        state.runner.region ?? 'local',
+            // Preserve the Lambda Script + enabled flag across endpoint switches.
+            lambdaScript:  state.runner.lambdaScript ?? DEFAULT_LAMBDA_SCRIPT,
+            lambdaEnabled: state.runner.lambdaEnabled ?? false,
           },
         })),
 
@@ -99,6 +205,14 @@ export const usePlaygroundStore = create(
       /** Set the active Global Edge region token. */
       setRegion: (region) =>
         set((state) => ({ runner: { ...state.runner, region } })),
+
+      /** Update the ⚡ Lambda Script source. */
+      setLambdaScript: (lambdaScript) =>
+        set((state) => ({ runner: { ...state.runner, lambdaScript } })),
+
+      /** Toggle whether the Lambda transform is applied on execution. */
+      setLambdaEnabled: (lambdaEnabled) =>
+        set((state) => ({ runner: { ...state.runner, lambdaEnabled } })),
 
       clearRunner: () =>
         set((state) => ({
@@ -149,6 +263,13 @@ export const usePlaygroundStore = create(
         const { useHistoryStore } = await import('./useHistoryStore.js');
         useAuthStore.getState().clearAuth();
         useHistoryStore.getState().clear();
+
+        // Clear the Performance Regression Log (analytics history) so old
+        // stress-test runs don't leak onto the next dashboard mount. Wipes
+        // its localStorage + sessionStorage cache and reactively resets any
+        // currently-mounted RegressionLog to a zero baseline.
+        const { clearRegressionLog } = await import('../components/dashboard/RegressionLog.jsx');
+        clearRegressionLog();
 
         // Reset playground to blank slate — no sessionId yet
         set({
@@ -356,15 +477,30 @@ export const usePlaygroundStore = create(
             },
           );
 
+          // ⚡ Apply the client-side Lambda transform (browser-only) when
+          // enabled and the request succeeded. On any error we keep the raw
+          // response and surface a non-fatal note — the runner never breaks.
+          let finalResponse = result.response;
+          let lambdaError   = null;
+          let lambdaApplied = false;
+          if (runner.lambdaEnabled && !result.error && result.response != null) {
+            const t = runLambdaTransform(runner.lambdaScript, result.response);
+            finalResponse = t.value;
+            lambdaError   = t.error;
+            lambdaApplied = t.applied;
+          }
+
           set((state) => ({
             runner: {
               ...state.runner,
               isFiring:        false,
-              response:        result.response,
+              response:        finalResponse,
               status:          result.status,
               latency:         result.latency,
               responseHeaders: result.responseHeaders ?? null,
               error:           result.error           ?? null,
+              lambdaError,
+              lambdaApplied,
             },
             requestLog: [
               {
@@ -383,11 +519,13 @@ export const usePlaygroundStore = create(
           set((state) => ({
             runner: {
               ...state.runner,
-              isFiring:  false,
-              error:     err.message ?? 'Request failed.',
-              response:  null,
-              status:    null,
-              latency:   null,
+              isFiring:      false,
+              error:         err.message ?? 'Request failed.',
+              response:      null,
+              status:        null,
+              latency:       null,
+              lambdaError:   null,
+              lambdaApplied: false,
             },
           }));
         }
@@ -413,9 +551,11 @@ export const usePlaygroundStore = create(
         requestLog:      state.requestLog,
         // Persist only the non-transient parts of runner
         runner: {
-          method: state.runner.method,
-          url:    state.runner.url,
-          body:   state.runner.body,
+          method:        state.runner.method,
+          url:           state.runner.url,
+          body:          state.runner.body,
+          lambdaScript:  state.runner.lambdaScript,
+          lambdaEnabled: state.runner.lambdaEnabled,
         },
       }),
 

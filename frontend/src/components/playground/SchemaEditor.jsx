@@ -437,9 +437,9 @@ export default function SchemaEditor() {
            ].join(', '),
            backgroundSize: '24px 24px, 100% 100%',
          }}>
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
+      {/* Header — title stays fixed; tab strip scrolls horizontally on mobile */}
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex shrink-0 items-center gap-2">
           <div className="flex h-7 w-7 items-center justify-center rounded-lg
                           bg-sky-600/20 ring-1 ring-sky-600/40">
             <svg className="h-4 w-4 text-sky-400" fill="none" viewBox="0 0 24 24"
@@ -451,12 +451,14 @@ export default function SchemaEditor() {
         </div>
 
         {generatedSchema && (
-          <div className="flex rounded-lg border border-gray-700 bg-gray-800 p-0.5">
+          <div className="flex min-w-0 items-center gap-2 overflow-x-auto whitespace-nowrap
+                          scrollbar-none pb-1 w-full rounded-lg border border-gray-700
+                          bg-gray-800 p-0.5">
             {TABS.map((mode) => (
               <button
                 key={mode}
                 onClick={() => setViewMode(mode)}
-                className={`rounded-md px-2.5 py-1 text-xs font-medium
+                className={`shrink-0 rounded-md px-2.5 py-1 text-xs font-medium
                             capitalize transition-all duration-150
                             ${viewMode === mode
                               ? 'bg-gray-700 text-gray-100 shadow'
