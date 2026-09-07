@@ -302,9 +302,9 @@ function EndpointDrawer({ ep, mockPath, generatedSchema }) {
                   {metrics.status}
                 </span>
               </div>
-              {/* Behaviour */}
+              {/* Behavior */}
               <div className="flex items-start gap-2 rounded-lg border border-gray-800/60 bg-gray-900/40 px-3 py-2">
-                <span className="shrink-0 text-[10px] font-semibold uppercase tracking-widest text-gray-700 w-20 mt-0.5">Behaviour</span>
+                <span className="shrink-0 text-[10px] font-semibold uppercase tracking-widest text-gray-700 w-20 mt-0.5">Behavior</span>
                 <span className="text-xs text-gray-400 leading-relaxed">{metrics.desc}</span>
               </div>
               {/* Headers echoed */}

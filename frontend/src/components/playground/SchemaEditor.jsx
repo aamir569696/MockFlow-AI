@@ -333,7 +333,7 @@ function SchemaGraph({ schema }) {
 
   if (!nodes.length) return (
     <p className="py-8 text-center text-xs text-gray-600">
-      No schema structure to visualise.
+      No schema structure to visualize.
     </p>
   );
 

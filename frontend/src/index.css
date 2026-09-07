@@ -5,24 +5,58 @@
 @layer base {
   * { box-sizing: border-box; }
 
-  html { scroll-behavior: smooth; }
+  /* ── Global fluid smooth scrolling ─────────────────────────────────────
+     Enforced on the root, body, and every overflow-capable viewport
+     container so all nested playground panels and dashboard consoles
+     inherit the same fluid scroll behaviour. */
+  html,
+  body {
+    scroll-behavior: smooth !important;
+  }
+
+  /* Any element that can scroll (native overflow attrs + Tailwind's overflow
+     utility classes) also scrolls smoothly. */
+  [style*="overflow"],
+  .overflow-auto,
+  .overflow-y-auto,
+  .overflow-x-auto,
+  .overflow-scroll,
+  .overflow-y-scroll,
+  .overflow-x-scroll {
+    scroll-behavior: smooth !important;
+  }
 
   body {
     @apply bg-gray-950 text-gray-100 font-sans antialiased;
     min-height: 100dvh;
   }
 
-  ::-webkit-scrollbar { width: 6px; height: 6px; }
-  ::-webkit-scrollbar-track { background: transparent; }
+  /* ── Premium scrollbar — ultra-thin 6px, transparent rails, rounded
+     indigo thumb that deepens on hover. Applied globally so every panel
+     and console shares the sleek look. */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;            /* transparent rails */
+  }
   ::-webkit-scrollbar-thumb {
     @apply rounded-full;
     background: rgba(99, 102, 241, 0.30);   /* indigo-600/30 */
+    transition: background 0.2s ease;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: rgba(99, 102, 241, 0.55);   /* indigo-500 hover */
+    background: rgba(99, 102, 241, 0.60);   /* indigo-500/60 on hover */
   }
-  /* Firefox */
-  * { scrollbar-width: thin; scrollbar-color: rgba(99,102,241,0.30) transparent; }
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+  /* Firefox — thin rail, indigo thumb over transparent track */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(99, 102, 241, 0.30) transparent;
+  }
 }
 
 @layer utilities {

@@ -63,7 +63,7 @@ export default function StressTester() {
     // Prepend an explicit benchmark warning so the concurrent stress packets
     // showing up in the Traffic Inspector aren't mistaken for real traffic.
     pushLog(`⚠️ [BENCHMARK RUN IN PROGRESS] — Logging concurrent stress execution waves`, 'warn');
-    pushLog(`⚡ Initialising stress run — ${intensity} concurrent hits`, 'accent');
+    pushLog(`⚡ Initializing stress run — ${intensity} concurrent hits`, 'accent');
     pushLog(`→ Target: ${apiName || 'Mock API'} · session ${sessionId.slice(0, 8)}…`, 'muted');
     pushLog(`→ Endpoint pool: ${pool.length} route${pool.length !== 1 ? 's' : ''}`, 'muted');
 
@@ -71,68 +71,82 @@ export default function StressTester() {
     const totalBatches = Math.ceil(intensity / BATCH_SIZE);
     let fired = 0;
 
-    for (let batch = 0; batch < totalBatches; batch++) {
-      const remaining = intensity - fired;
-      const size = Math.min(BATCH_SIZE, remaining);
+    // Wrap the whole run so an unexpected rejection can never strand the panel
+    // with a stuck spinner — `running` is always cleared in `finally`.
+    try {
+      for (let batch = 0; batch < totalBatches; batch++) {
+        const remaining = intensity - fired;
+        const size = Math.min(BATCH_SIZE, remaining);
 
-      pushLog(`▸ Firing batch loop ${batch + 1}/${totalBatches} — ${size} parallel requests…`, 'info');
+        pushLog(`▸ Firing batch loop ${batch + 1}/${totalBatches} — ${size} parallel requests…`, 'info');
 
-      // Build a batch of promises hitting round-robin endpoints
-      const wave = Array.from({ length: size }, (_, i) =>
-        fireOne(pool[(fired + i) % pool.length])
-      );
+        // Build a batch of promises hitting round-robin endpoints
+        const wave = Array.from({ length: size }, (_, i) =>
+          fireOne(pool[(fired + i) % pool.length])
+        );
 
-      // Aggressive concurrent fire
-      // eslint-disable-next-line no-await-in-loop
-      const batchResults = await Promise.all(wave);
-      results.push(...batchResults);
-      fired += size;
+        // Aggressive concurrent fire. fireOne never throws (it resolves to an
+        // {ok:false} result on failure), but allSettled is used defensively so
+        // a single unexpected rejection can't abort the entire run.
+        // eslint-disable-next-line no-await-in-loop
+        const settled = await Promise.allSettled(wave);
+        const batchResults = settled.map(s =>
+          s.status === 'fulfilled' ? s.value : { ok: false, status: 0, latency: 0, bytes: 0 }
+        );
+        results.push(...batchResults);
+        fired += size;
 
-      const okCount = batchResults.filter(r => r.ok).length;
-      pushLog(`  ✓ Batch ${batch + 1} settled — ${okCount}/${size} OK`, okCount === size ? 'ok' : 'warn');
+        const okCount = batchResults.filter(r => r.ok).length;
+        pushLog(`  ✓ Batch ${batch + 1} settled — ${okCount}/${size} OK`, okCount === size ? 'ok' : 'warn');
 
-      setProgress(Math.round((fired / intensity) * 100));
+        setProgress(Math.round((fired / intensity) * 100));
+      }
+
+      // ── Compile telemetry ────────────────────────────────────────────────
+      const latencies   = results.map(r => r.latency);
+      const okCount      = results.filter(r => r.ok).length;
+      const totalBytes   = results.reduce((s, r) => s + r.bytes, 0);
+      const avgLatency   = latencies.reduce((s, l) => s + l, 0) / (latencies.length || 1);
+      const minLatency   = latencies.length ? Math.min(...latencies) : 0;
+      const maxLatency   = latencies.length ? Math.max(...latencies) : 0;
+      const p95          = [...latencies].sort((a, b) => a - b)[Math.floor(latencies.length * 0.95)] ?? maxLatency;
+      const successRate  = (okCount / (results.length || 1)) * 100;
+      const throughputKB = totalBytes / 1024;
+
+      pushLog(`✅ Run complete — ${okCount}/${results.length} succeeded`, 'ok');
+
+      setSummary({
+        total:        results.length,
+        avgLatency:   avgLatency.toFixed(1),
+        minLatency:   minLatency.toFixed(1),
+        maxLatency:   maxLatency.toFixed(1),
+        p95:          p95.toFixed(1),
+        successRate:  successRate.toFixed(1),
+        throughputKB: throughputKB.toFixed(2),
+        throughputMB: (throughputKB / 1024).toFixed(3),
+      });
+
+      // ── Broadcast the baseline diagnostics to the Regression Log ───────────
+      // Loosely coupled: the RegressionLog listens for this event and persists
+      // the record to localStorage. Keeps the two panels decoupled (no props).
+      window.dispatchEvent(new CustomEvent('mockflow:stressrun', {
+        detail: {
+          id:          `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          timestamp:   Date.now(),
+          intensity,
+          total:       results.length,
+          avgLatency:  Number(avgLatency.toFixed(1)),
+          successRate: Number(successRate.toFixed(1)),
+          throughputKB: Number(throughputKB.toFixed(2)),
+        },
+      }));
+    } catch (err) {
+      // Defensive — should be unreachable given fireOne/allSettled, but a stuck
+      // panel is worse than a clear message.
+      pushLog(`✕ Stress run aborted — ${err?.message ?? 'unexpected error'}`, 'warn');
+    } finally {
+      setRunning(false);
     }
-
-    // ── Compile telemetry ────────────────────────────────────────────────
-    const latencies   = results.map(r => r.latency);
-    const okCount      = results.filter(r => r.ok).length;
-    const totalBytes   = results.reduce((s, r) => s + r.bytes, 0);
-    const avgLatency   = latencies.reduce((s, l) => s + l, 0) / (latencies.length || 1);
-    const minLatency   = Math.min(...latencies);
-    const maxLatency   = Math.max(...latencies);
-    const p95          = [...latencies].sort((a, b) => a - b)[Math.floor(latencies.length * 0.95)] ?? maxLatency;
-    const successRate  = (okCount / (results.length || 1)) * 100;
-    const throughputKB = totalBytes / 1024;
-
-    pushLog(`✅ Run complete — ${okCount}/${results.length} succeeded`, 'ok');
-
-    setSummary({
-      total:        results.length,
-      avgLatency:   avgLatency.toFixed(1),
-      minLatency:   minLatency.toFixed(1),
-      maxLatency:   maxLatency.toFixed(1),
-      p95:          p95.toFixed(1),
-      successRate:  successRate.toFixed(1),
-      throughputKB: throughputKB.toFixed(2),
-      throughputMB: (throughputKB / 1024).toFixed(3),
-    });
-    setRunning(false);
-
-    // ── Broadcast the baseline diagnostics to the Regression Log ───────────
-    // Loosely coupled: the RegressionLog listens for this event and persists
-    // the record to localStorage. Keeps the two panels decoupled (no props).
-    window.dispatchEvent(new CustomEvent('mockflow:stressrun', {
-      detail: {
-        id:          `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        timestamp:   Date.now(),
-        intensity,
-        total:       results.length,
-        avgLatency:  Number(avgLatency.toFixed(1)),
-        successRate: Number(successRate.toFixed(1)),
-        throughputKB: Number(throughputKB.toFixed(2)),
-      },
-    }));
   }, [running, sessionId, endpoints, intensity, apiName, fireOne, pushLog]);
 
   const disabled = !sessionId || !endpoints.length;
@@ -208,6 +222,11 @@ export default function StressTester() {
           <button
             onClick={execute}
             disabled={disabled || running}
+            aria-label="Execute performance stress run"
+            aria-busy={running}
+            title={disabled
+              ? 'Generate an API first to enable the stress-tester'
+              : `Fire ${intensity} concurrent requests at your live mock endpoints and measure latency, stability, and throughput`}
             className={`flex w-full items-center justify-center gap-2 rounded-lg px-4 py-2.5
                         text-xs font-bold tracking-wide transition-all duration-200
                         focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400

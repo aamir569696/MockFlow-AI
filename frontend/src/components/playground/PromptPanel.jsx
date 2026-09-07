@@ -271,7 +271,7 @@ export default function PromptPanel() {
       <div className="flex items-center gap-2 pt-1">
         <span className="h-px flex-1 bg-gray-800/70" />
         <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-700">
-          danger zone
+          Danger Zone
         </span>
         <span className="h-px flex-1 bg-gray-800/70" />
       </div>

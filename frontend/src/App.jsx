@@ -5,6 +5,7 @@ import DashboardPage from './pages/DashboardPage.jsx';
 import NotFoundPage from './pages/NotFoundPage.jsx';
 import AuthModal from './components/auth/AuthModal.jsx';
 import SessionRehydrator from './components/SessionRehydrator.jsx';
+import ErrorBoundary from './components/ErrorBoundary.jsx';
 
 /**
  * App — root router.
@@ -24,12 +25,15 @@ function App() {
       {/* Global auth overlay — rendered above all routes */}
       <AuthModal />
 
-      <Routes>
-        <Route path="/" element={<LandingPage />} />
-        <Route path="/playground" element={<PlaygroundPage />} />
-        <Route path="/dashboard" element={<DashboardPage />} />
-        <Route path="*" element={<NotFoundPage />} />
-      </Routes>
+      {/* Catch render crashes in any route so they never white-screen the app */}
+      <ErrorBoundary>
+        <Routes>
+          <Route path="/" element={<LandingPage />} />
+          <Route path="/playground" element={<PlaygroundPage />} />
+          <Route path="/dashboard" element={<DashboardPage />} />
+          <Route path="*" element={<NotFoundPage />} />
+        </Routes>
+      </ErrorBoundary>
     </>
   );
 }

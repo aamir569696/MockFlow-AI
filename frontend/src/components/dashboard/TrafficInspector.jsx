@@ -156,11 +156,14 @@ export default function TrafficInspector() {
             onClick={() => setLive(l => !l)}
             className={`flex items-center gap-1.5 rounded-md border px-2 py-0.5
                         text-[10px] font-semibold transition-all
+                        focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500
                         ${live
                           ? 'border-emerald-800/60 bg-emerald-950/40 text-emerald-400'
                           : 'border-gray-700 bg-gray-800/60 text-gray-500 hover:text-gray-300'
                         }`}
             aria-pressed={live}
+            aria-label={live ? 'Pause live traffic polling' : 'Resume live traffic polling'}
+            title={live ? 'Live — polling every 2s. Click to pause.' : 'Paused. Click to resume live polling.'}
           >
             <span className={`h-1.5 w-1.5 rounded-full ${live ? 'bg-emerald-400 animate-pulse' : 'bg-gray-600'}`} />
             {live ? 'LIVE' : 'PAUSED'}
@@ -168,9 +171,12 @@ export default function TrafficInspector() {
           {/* Clear */}
           <button
             onClick={clearLog}
+            aria-label="Clear traffic log"
+            title="Clear the current traffic log (does not affect server-side history)"
             className="rounded-md border border-gray-700 bg-gray-800/60 px-2 py-0.5
                        text-[10px] font-semibold text-gray-500
-                       transition-all hover:border-gray-600 hover:text-gray-300"
+                       transition-all hover:border-gray-600 hover:text-gray-300
+                       focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-500"
           >
             Clear
           </button>

@@ -208,7 +208,8 @@ export default function ExportDropdown({ compact = false }) {
         disabled={disabled}
         aria-haspopup="true"
         aria-expanded={open}
-        title={disabled ? 'Generate an API first' : 'Export options'}
+        aria-label="Export options — Postman collection and SDK"
+        title={disabled ? 'Generate an API first' : 'Export a Postman collection or SDK bundle'}
       >
         {/* Export icon */}
         <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24"

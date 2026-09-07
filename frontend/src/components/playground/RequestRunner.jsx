@@ -1084,6 +1084,7 @@ function LambdaEditor({ script, onChange, enabled, onEnabledChange }) {
                         focus-visible:ring-indigo-500
                         ${enabled ? 'bg-indigo-600' : 'bg-gray-700'}`}
             aria-label="Toggle Lambda transform"
+            title="When on, your transform(response) function reshapes the response in your browser before it's shown — the server is never involved"
           >
             <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white
                               transition-transform duration-200
@@ -1317,11 +1318,11 @@ export default function RequestRunner({ view = 'all' }) {
 
             {/* Tooltip body */}
             <p className="text-xs leading-relaxed text-slate-400">
-              Operational on external clients:{' '}
+              Callable from any origin —{' '}
               <span className="font-medium text-slate-300">
-                Postman, Localhost apps, Mobile SDKs
+                Postman, local apps, and mobile SDKs
               </span>
-              , and any origin. No preflight restriction.
+              {' '}included. No preflight restrictions.
             </p>
 
             {/* Client chips */}
@@ -1455,6 +1456,8 @@ export default function RequestRunner({ view = 'all' }) {
             onClick={fireFetch}
             disabled={isFiring}
             aria-busy={isFiring}
+            aria-label="Send a live request to this endpoint"
+            title="Send a live HTTP request to this mock endpoint and inspect the response"
           >
             {isFiring ? (
               <>

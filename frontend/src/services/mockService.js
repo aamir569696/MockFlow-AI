@@ -2,7 +2,11 @@ import axios from 'axios';
 
 const SESSION_KEY = 'mf_session_id';
 
-const api = axios.create({ baseURL: '/api' });
+// Request timeout (ms). Prevents a hung backend from leaving the UI stuck on a
+// spinner indefinitely — axios aborts and surfaces a timeout error instead.
+const REQUEST_TIMEOUT_MS = 20000;
+
+const api = axios.create({ baseURL: '/api', timeout: REQUEST_TIMEOUT_MS });
 
 // ── Request interceptor: attach guest session header ──────────────────────────
 api.interceptors.request.use((config) => {
@@ -58,12 +62,17 @@ export const mockService = {
         error: null,
       };
     } catch (err) {
+      // Give the caller a clear, human-readable reason — especially for the
+      // timeout case, which otherwise surfaces as a cryptic axios message.
+      const isTimeout = err.code === 'ECONNABORTED' || /timeout/i.test(err.message ?? '');
       return {
         status: null,
         response: null,
         latency: Date.now() - start,
         responseHeaders: null,
-        error: err.message ?? 'Network error',
+        error: isTimeout
+          ? `Request timed out after ${REQUEST_TIMEOUT_MS / 1000}s — the server may be slow or unreachable.`
+          : (err.message ?? 'Network error'),
       };
     }
   },
