@@ -150,18 +150,26 @@ const handleMock = async (req, res, next) => {
     // res.on('finish') fires exactly once when the response is fully sent,
     // regardless of which branch below returns. This captures the true final
     // status code + wall-clock latency for the Live Traffic Inspector.
+    //
+    // Bulk stress-test hits carry `x-mockflow-stress: 1` and are DELIBERATELY
+    // excluded from the traffic log so the Live Traffic Inspector shows only
+    // organic/manual requests, and dashboard stats (derived from traffic) are
+    // not skewed by intentional batch volume or error simulation.
+    const isStressHit = String(req.headers['x-mockflow-stress'] ?? '') === '1';
     const _trafficStart = Date.now();
-    res.on('finish', () => {
-      SessionStore.recordTraffic(sessionId, {
-        id:        `evt-${_trafficStart}-${Math.random().toString(36).slice(2, 7)}`,
-        ts:        new Date(_trafficStart).toISOString(),
-        method,
-        slug:      endpointSlug,
-        status:    res.statusCode,
-        latencyMs: Date.now() - _trafficStart,
-        ip:        (req.headers['x-forwarded-for'] || req.ip || '').toString().split(',')[0].trim(),
+    if (!isStressHit) {
+      res.on('finish', () => {
+        SessionStore.recordTraffic(sessionId, {
+          id:        `evt-${_trafficStart}-${Math.random().toString(36).slice(2, 7)}`,
+          ts:        new Date(_trafficStart).toISOString(),
+          method,
+          slug:      endpointSlug,
+          status:    res.statusCode,
+          latencyMs: Date.now() - _trafficStart,
+          ip:        (req.headers['x-forwarded-for'] || req.ip || '').toString().split(',')[0].trim(),
+        });
       });
-    });
+    }
 
     // ── 3 & 4. Resolve endpoint (session-isolated, method-aware lookup) ──
     // Method-aware so a slug serving both a list GET and a create POST

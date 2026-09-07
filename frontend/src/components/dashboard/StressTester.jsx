@@ -20,6 +20,7 @@ export default function StressTester() {
   const [progress, setProgress]   = useState(0);
   const [log, setLog]             = useState([]);
   const [summary, setSummary]     = useState(null);
+  const [runEvents, setRunEvents] = useState([]);   // per-request events of the latest run
   const logRef = useRef(null);
 
   const pushLog = useCallback((line, tone = 'info') => {
@@ -31,20 +32,28 @@ export default function StressTester() {
   }, []);
 
   // ── Fire a single request, measuring latency + payload size ───────────────
+  // Sends `x-mockflow-stress: 1` so the backend excludes these bulk hits from
+  // the Live Traffic Inspector and dashboard stats. Returns per-event detail
+  // so we can render the scoped "Stress Run Log" panel for this tab only.
   const fireOne = useCallback(async (ep) => {
     const url = `/api/mock/${sessionId}/${ep.slug}`;
     const t0  = performance.now();
     try {
-      const res  = await fetch(url, { headers: { 'x-mockflow-session': sessionId } });
+      const res  = await fetch(url, {
+        headers: { 'x-mockflow-session': sessionId, 'x-mockflow-stress': '1' },
+      });
       const text = await res.text();
       return {
         ok:       res.ok,
         status:   res.status,
         latency:  performance.now() - t0,
         bytes:    new TextEncoder().encode(text).length,
+        method:   ep.method,
+        slug:     ep.slug,
+        ts:       Date.now(),
       };
     } catch {
-      return { ok: false, status: 0, latency: performance.now() - t0, bytes: 0 };
+      return { ok: false, status: 0, latency: performance.now() - t0, bytes: 0, method: ep.method, slug: ep.slug, ts: Date.now() };
     }
   }, [sessionId]);
 
@@ -56,6 +65,7 @@ export default function StressTester() {
     setProgress(0);
     setSummary(null);
     setLog([]);
+    setRunEvents([]);
 
     const getEndpoints = endpoints.filter(e => e.method === 'GET');
     const pool = getEndpoints.length ? getEndpoints : endpoints;
@@ -94,6 +104,9 @@ export default function StressTester() {
           s.status === 'fulfilled' ? s.value : { ok: false, status: 0, latency: 0, bytes: 0 }
         );
         results.push(...batchResults);
+        // Accumulate per-event detail for the scoped Stress Run Log panel
+        // (capped so a 200-hit run doesn't render an unbounded list).
+        setRunEvents(prev => [...prev, ...batchResults].slice(0, 200));
         fired += size;
 
         const okCount = batchResults.filter(r => r.ok).length;
@@ -157,6 +170,22 @@ export default function StressTester() {
     warn:   'text-amber-400',
     info:   'text-gray-400',
     muted:  'text-gray-600',
+  };
+
+  // Colour helpers for the Stress Run Log rows.
+  const evMethodColor = (m) => ({
+    GET: 'text-emerald-400', POST: 'text-blue-400', PUT: 'text-amber-400',
+    PATCH: 'text-purple-400', DELETE: 'text-red-400',
+  }[m] ?? 'text-gray-400');
+  const evStatusColor = (s) =>
+    !s ? 'text-red-400'
+    : s < 300 ? 'text-emerald-400'
+    : s < 400 ? 'text-blue-400'
+    : s < 500 ? 'text-amber-400'
+    : 'text-red-400';
+  const evTime = (ts) => {
+    try { return new Date(ts).toLocaleTimeString(undefined, { hour12: false }); }
+    catch { return '—'; }
   };
 
   return (
@@ -304,6 +333,62 @@ export default function StressTester() {
                     <span className="select-none text-indigo-500/50">$ </span>{l.line}
                   </div>
                 ))}
+              </div>
+            )}
+
+            {/* ── Stress Run Log — per-event detail of the latest run ─────── */}
+            {/* Scoped to THIS tab only. Bulk stress hits are excluded from the */}
+            {/* Traffic Inspector, so this is where their event detail lives.   */}
+            {runEvents.length > 0 && (
+              <div className="flex flex-col gap-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-widest text-gray-600">
+                    <span className="h-1.5 w-1.5 rounded-full bg-indigo-400" />
+                    Stress Run Log
+                  </span>
+                  <span className="rounded-full bg-gray-800 px-2 py-0.5 font-mono text-[10px] text-gray-500">
+                    {runEvents.length} event{runEvents.length !== 1 ? 's' : ''}
+                  </span>
+                </div>
+
+                {/* Column header */}
+                <div className="grid grid-cols-[3rem_1fr_2.5rem_3.5rem_4rem] items-center gap-2
+                                px-2 text-[9px] font-semibold uppercase tracking-widest text-gray-700">
+                  <span>Method</span>
+                  <span>Route</span>
+                  <span className="text-right">Code</span>
+                  <span className="text-right">Latency</span>
+                  <span className="text-right">Time</span>
+                </div>
+
+                {/* Rows */}
+                <div className="smooth-scroll flex max-h-52 flex-col gap-1 overflow-y-auto rounded-xl
+                                border border-gray-800/60 bg-gray-950/60 p-1.5"
+                     data-lenis-prevent>
+                  {runEvents.map((ev, i) => (
+                    <div
+                      key={`${ev.ts}-${i}`}
+                      className="grid grid-cols-[3rem_1fr_2.5rem_3.5rem_4rem] items-center gap-2
+                                 rounded-md px-2 py-1 hover:bg-gray-900/60"
+                    >
+                      <span className={`font-mono text-[10px] font-bold ${evMethodColor(ev.method)}`}>
+                        {ev.method}
+                      </span>
+                      <code className="min-w-0 truncate font-mono text-[10px] text-gray-400" title={`/${ev.slug}`}>
+                        /{ev.slug}
+                      </code>
+                      <span className={`text-right font-mono text-[10px] font-bold tabular-nums ${evStatusColor(ev.status)}`}>
+                        {ev.status || 'ERR'}
+                      </span>
+                      <span className="text-right font-mono text-[10px] tabular-nums text-gray-600">
+                        {Math.round(ev.latency)}ms
+                      </span>
+                      <span className="text-right font-mono text-[9px] tabular-nums text-gray-700">
+                        {evTime(ev.ts)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 
