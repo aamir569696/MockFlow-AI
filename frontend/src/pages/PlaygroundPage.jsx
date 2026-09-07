@@ -226,17 +226,8 @@ function SubHeader() {
             ⚡ Autonomous API Prototyping Grid
           </h1>
 
-          {/* Subtitle */}
-          <p
-            className="max-w-xl px-1 text-sm leading-relaxed text-slate-400 sm:px-0"
-            style={{ color: 'rgba(148,163,184,0.60)' }}
-          >
-            Type requirements in plain language —{' '}
-            <span style={{ color: 'rgba(165,180,252,0.75)' }}>
-              MockFlow automatically compiles, secures, and exposes
-            </span>{' '}
-            scalable live HTTP routes instantly.
-          </p>
+          
+        
         </div>
 
         {/* ── Gemini badge ───────────────────────────────────────────────── */}

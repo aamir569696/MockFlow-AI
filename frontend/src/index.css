@@ -5,25 +5,32 @@
 @layer base {
   * { box-sizing: border-box; }
 
-  /* ── Global fluid smooth scrolling ─────────────────────────────────────
-     Enforced on the root, body, and every overflow-capable viewport
-     container so all nested playground panels and dashboard consoles
-     inherit the same fluid scroll behaviour. */
-  html,
-  body {
-    scroll-behavior: smooth !important;
+  /* ── Lenis smooth scroll (page-level) ──────────────────────────────────
+     Lenis drives the window scroll via a rAF loop, so the root must NOT use
+     CSS `scroll-behavior: smooth` (it double-eases and causes jank). These
+     are Lenis's recommended base rules. Nested independent containers opt
+     out with `data-lenis-prevent` and keep native + `.smooth-scroll` easing. */
+  html.lenis,
+  html.lenis body {
+    height: auto;
+  }
+  .lenis.lenis-smooth {
+    scroll-behavior: auto !important;
+  }
+  .lenis.lenis-smooth [data-lenis-prevent] {
+    overscroll-behavior: contain;
+  }
+  .lenis.lenis-stopped {
+    overflow: hidden;
+  }
+  .lenis.lenis-smooth iframe {
+    pointer-events: none;
   }
 
-  /* Any element that can scroll (native overflow attrs + Tailwind's overflow
-     utility classes) also scrolls smoothly. */
-  [style*="overflow"],
-  .overflow-auto,
-  .overflow-y-auto,
-  .overflow-x-auto,
-  .overflow-scroll,
-  .overflow-y-scroll,
-  .overflow-x-scroll {
-    scroll-behavior: smooth !important;
+  /* Fallback for browsers / reduced-motion where Lenis isn't driving the
+     window: keep native document scrolling eased. */
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
   }
 
   body {
@@ -89,6 +96,40 @@
   }
   .scrollbar-thin::-webkit-scrollbar-track {
     background: transparent;
+  }
+
+  /* ── Independent smooth scroll container ──────────────────────────────
+     For inner panels that scroll on their own (endpoint list, workbench,
+     history, response body, dashboard consoles). Pairs with the
+     `data-lenis-prevent` attribute so page-level Lenis releases the wheel
+     to this element, letting it scroll natively and independently.
+       • overscroll-behavior: contain — scroll stays inside; it never chains
+         to (or rubber-bands) the whole page at the top/bottom edges.
+       • -webkit-overflow-scrolling: touch — momentum/inertia on trackpad &
+         touch, so it feels natural without a JS scroll loop per container.
+       • scroll-behavior: smooth — eased programmatic jumps.
+       • thin indigo scrollbar matching the app theme. */
+  .smooth-scroll {
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    scroll-behavior: smooth;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(99, 102, 241, 0.30) transparent;
+  }
+  .smooth-scroll::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .smooth-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .smooth-scroll::-webkit-scrollbar-thumb {
+    border-radius: 9999px;
+    background: rgba(99, 102, 241, 0.30);
+    transition: background 0.2s ease;
+  }
+  .smooth-scroll::-webkit-scrollbar-thumb:hover {
+    background: rgba(99, 102, 241, 0.55);
   }
 }
 

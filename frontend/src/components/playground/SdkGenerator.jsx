@@ -322,8 +322,9 @@ export default function SdkGenerator() {
         </div>
 
         {/* Snippet text */}
-        <pre className="max-h-72 overflow-auto px-4 py-3 font-mono text-[11px]
-                        leading-relaxed text-emerald-300/90 whitespace-pre">
+        <pre className="smooth-scroll max-h-72 overflow-auto px-4 py-3 font-mono text-[11px]
+                        leading-relaxed text-emerald-300/90 whitespace-pre"
+             data-lenis-prevent>
           {snippet || '// Select an endpoint to generate a snippet'}
         </pre>
       </div>

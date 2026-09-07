@@ -1569,8 +1569,9 @@ export default function RequestRunner({ view = 'all' }) {
                   </div>
                   {/* Response body container — overflow-hidden prevents horizontal bleed */}
                   <div
-                    className="max-h-72 overflow-y-auto overflow-x-hidden rounded-xl
+                    className="smooth-scroll max-h-72 overflow-y-auto overflow-x-hidden rounded-xl
                                border border-gray-800 bg-gray-950/80 px-4 py-3"
+                    data-lenis-prevent
                     role="region"
                     aria-label="Response body"
                   >

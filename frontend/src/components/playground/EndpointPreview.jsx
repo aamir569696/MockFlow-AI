@@ -420,7 +420,8 @@ export default function EndpointPreview() {
       {/* ── Endpoint accordion list ────────────────────────────────────── */}
       {!isGenerating && endpoints.length > 0 && (
         <motion.ul
-          className="flex max-h-[38vh] flex-col gap-1 overflow-y-auto scrollbar-thin pr-1"
+          className="smooth-scroll flex max-h-[38vh] flex-col gap-1 overflow-y-auto pr-1"
+          data-lenis-prevent
           role="list"
           variants={{
             hidden: {},

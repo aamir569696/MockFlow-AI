@@ -197,7 +197,8 @@ export default function TrafficInspector() {
 
       {/* ── Console log ────────────────────────────────────────────────── */}
       <div
-        className="max-h-72 overflow-y-auto px-2 py-2"
+        className="smooth-scroll max-h-72 overflow-y-auto px-2 py-2"
+        data-lenis-prevent
         style={{
           backgroundImage: 'radial-gradient(circle, rgba(99,102,241,0.03) 1px, transparent 1px)',
           backgroundSize: '18px 18px',

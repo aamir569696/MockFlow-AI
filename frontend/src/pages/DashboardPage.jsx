@@ -700,7 +700,7 @@ export default function DashboardPage() {
                 </div>
 
                 {/* Rows */}
-                <div className="flex flex-col gap-1 p-3 max-h-96 overflow-y-auto">
+                <div className="smooth-scroll flex flex-col gap-1 p-3 max-h-96 overflow-y-auto" data-lenis-prevent>
                   {activeCol.endpoints.map((ep, i) => (
                     <EndpointRow
                       key={`${ep.method}-${ep.slug}-${i}`}
@@ -801,7 +801,7 @@ export default function DashboardPage() {
           </div>
 
           {/* Log rows */}
-          <div className="max-h-64 overflow-y-auto">
+          <div className="smooth-scroll max-h-64 overflow-y-auto" data-lenis-prevent>
             {requestLog.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-center">
                 <p className="text-xs text-gray-700">

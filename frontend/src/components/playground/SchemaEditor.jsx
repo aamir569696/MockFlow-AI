@@ -524,9 +524,10 @@ export default function SchemaEditor() {
       ) : viewMode === 'tree' ? (
         <div
           key={JSON.stringify(generatedSchema).slice(0, 64)}
-          className="ambient-grid max-h-80 overflow-y-auto rounded-lg border
+          className="smooth-scroll ambient-grid max-h-80 overflow-y-auto rounded-lg border
                      border-indigo-900/20 bg-gray-950/70 px-3 py-3
                      font-mono text-xs leading-6 animate-fade-in"
+          data-lenis-prevent
           role="region" aria-label="JSON schema tree"
         >
           <JsonNode value={generatedSchema} depth={0} staggerIndex={0} />
@@ -542,8 +543,9 @@ export default function SchemaEditor() {
         />
       ) : viewMode === 'docs' ? (
         /* ── 📜 API Docs — static table of schema fields ── */
-        <div className="max-h-80 overflow-y-auto rounded-lg border border-gray-800
-                        bg-gray-950/60 animate-fade-in">
+        <div className="smooth-scroll max-h-80 overflow-y-auto rounded-lg border border-gray-800
+                        bg-gray-950/60 animate-fade-in"
+             data-lenis-prevent>
           <table className="w-full text-left text-xs" aria-label="API schema documentation">
             <thead>
               <tr className="border-b border-gray-800 bg-gray-900/80">

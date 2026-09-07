@@ -291,8 +291,9 @@ export default function StressTester() {
             {log.length > 0 && (
               <div
                 ref={logRef}
-                className="max-h-44 overflow-y-auto rounded-xl border border-gray-800/60
+                className="smooth-scroll max-h-44 overflow-y-auto rounded-xl border border-gray-800/60
                            bg-gray-950/80 px-3 py-2.5 font-mono text-[11px] leading-relaxed"
+                data-lenis-prevent
                 style={{
                   backgroundImage: 'radial-gradient(circle, rgba(99,102,241,0.04) 1px, transparent 1px)',
                   backgroundSize: '18px 18px',

@@ -198,8 +198,9 @@ export default function MockHistorySidebar() {
       {/* ── Body ───────────────────────────────────────────────────────── */}
       <div
         id="mock-history-list"
-        className="flex flex-col gap-2 overflow-y-auto p-2.5
+        className="smooth-scroll flex flex-col gap-2 overflow-y-auto p-2.5
                    max-h-[calc(50dvh-44px)] transition-all duration-300 lg:max-h-[520px]"
+        data-lenis-prevent
         aria-live="polite"
       >
         {entries.length === 0 ? (
