@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore.js';
 import { usePlaygroundStore } from '../store/playgroundStore.js';
-import TrafficInspector from '../components/dashboard/TrafficInspector.jsx';
 import StressTester from '../components/dashboard/StressTester.jsx';
 import RegressionLog from '../components/dashboard/RegressionLog.jsx';
 
@@ -821,9 +820,6 @@ export default function DashboardPage() {
             )}
           </div>
         </div>
-
-          {/* Live Traffic Webhook Inspector */}
-          <TrafficInspector />
 
         </div>{/* ═══ END TAB 1 ═══ */}
 

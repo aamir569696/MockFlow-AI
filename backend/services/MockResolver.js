@@ -186,6 +186,39 @@ function safeParseJSON(text) {
   }
 }
 
+/**
+ * safeStringify — defensive JSON serialisation for prompt embedding.
+ *
+ * Guards the (rare) case where an in-memory schema/endpoint object is cyclic or
+ * otherwise non-serialisable, which would throw inside the prompt template and
+ * abort the request before it reaches the model. Falls back to a shallow,
+ * cycle-tolerant serialisation so the edit can still proceed.
+ *
+ * Note: JSON.stringify ALREADY escapes quotes, brackets and newlines, so the
+ * embedded schema is always well-formed text inside the prompt string. No extra
+ * regex quote-stripping is needed (and stripping quotes would corrupt valid
+ * JSON) — this helper only adds crash-safety, not character mangling.
+ */
+function safeStringify(value) {
+  try {
+    return JSON.stringify(value ?? {}, null, 2);
+  } catch {
+    // Cyclic or non-serialisable — strip cycles and retry.
+    const seen = new WeakSet();
+    try {
+      return JSON.stringify(value ?? {}, (_k, v) => {
+        if (v && typeof v === 'object') {
+          if (seen.has(v)) return '[Circular]';
+          seen.add(v);
+        }
+        return v;
+      }, 2);
+    } catch {
+      return '{}';
+    }
+  }
+}
+
 // ── Slug sanitiser ────────────────────────────────────────────────────────────
 function sanitiseSlug(raw = '') {
   return raw
@@ -636,27 +669,53 @@ export const MockResolver = {
       throw e;
     }
 
+    // Defensively serialise the session context. safeStringify escapes quotes,
+    // brackets and newlines (standard JSON.stringify behaviour) and tolerates a
+    // cyclic/bad schema without throwing before the model call.
+    const schemaBlock = safeStringify(currentSchema ?? {});
+    const endpointsBlock = safeStringify(
+      (currentEndpoints ?? []).map(e => ({
+        slug: e.slug, method: e.method, description: e.description,
+        resource: e.resource, isCollection: e.isCollection,
+      }))
+    );
+
     const editPrompt = `${EDIT_SYSTEM_PROMPT}
 
 CURRENT_SCHEMA:
-${JSON.stringify(currentSchema ?? {}, null, 2)}
+${schemaBlock}
 
 CURRENT_ENDPOINTS:
-${JSON.stringify((currentEndpoints ?? []).map(e => ({
-  slug: e.slug, method: e.method, description: e.description,
-  resource: e.resource, isCollection: e.isCollection,
-})), null, 2)}
+${endpointsBlock}
 
 USER_INSTRUCTION: ${instruction}`;
 
     let parsed;
     try {
-      const result = await model.generateContent(editPrompt);
+      // Full-schema returns can be large; give the edit response enough token
+      // headroom so it isn't truncated mid-JSON (a truncated body → parse fail).
+      // responseMimeType:'application/json' (set on the model) already forces a
+      // raw JSON object with no conversational preamble.
+      const result = await model.generateContent({
+        contents: [{ role: 'user', parts: [{ text: editPrompt }] }],
+        generationConfig: { responseMimeType: 'application/json', temperature: 0.3, maxOutputTokens: 8192 },
+      });
       parsed = safeParseJSON(result.response.text());
     } catch (err) {
-      const e = new Error('Could not process that edit. Please rephrase and try again.');
+      // Surface the REAL reason so a 502 is diagnosable (missing key vs model
+      // error vs parse failure) instead of a generic, misleading message.
+      const raw = err?.message ?? '';
+      let reason = 'Could not process that edit. Please rephrase and try again.';
+      if (/API_KEY|api key|permission|PERMISSION_DENIED|401|403/i.test(raw)) {
+        reason = 'AI editing is unavailable — the Gemini API key is missing or invalid.';
+      } else if (/quota|429|rate/i.test(raw)) {
+        reason = 'AI editing is temporarily rate-limited. Please try again shortly.';
+      } else if (/JSON|parse|Unexpected token/i.test(raw)) {
+        reason = 'The AI returned an unreadable response. Please try again.';
+      }
+      const e = new Error(reason);
       e.code = 'EDIT_FAILED';
-      e.cause = err?.message;
+      e.cause = raw;
       throw e;
     }
 

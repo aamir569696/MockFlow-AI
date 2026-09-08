@@ -146,6 +146,9 @@ router.post('/edit', generateLimiter, async (req, res, next) => {
       });
     }
     if (err.code === 'AI_UNAVAILABLE' || err.code === 'EDIT_FAILED') {
+      // Log the underlying cause so the true reason for the 502 is diagnosable
+      // (client sees a clean message; server logs the real error).
+      console.warn(`[generate/edit] ${err.code}: ${err.cause ?? err.message}`);
       return res.status(502).json({
         error: { code: err.code, message: err.message },
       });
