@@ -87,7 +87,7 @@ PUT  /api/mock/:sessionId/orders-update
  📂 Workspace Switcher | Manage multiple generated API projects in one session 
 
  🛡️ Security Layer | Helmet, CORS, rate limiting, UUID validation, session isolation 
- 
+
  📱 Responsive UI | Fully usable on desktop and mobile 
 
 ---
@@ -167,27 +167,121 @@ Response + Header Echo
 
 ---
 
+🏗️ System Architecture
+
+MockFlow AI follows a clean client-server separation: a React SPA (Landing, Playground, Dashboard, Docs pages) talks to an Express REST backend, which either calls the Gemini AI provider or falls back to a local deterministic engine for generation and editing.
+
+
+                        ┌─────────────────────────┐
+                        │        Frontend         │
+                        │  React + Zustand + Vite │
+                        │ Landing · Playground ·  │
+                        │  Dashboard · Docs Pages │
+                        └────────────┬────────────┘
+                                     │ REST (fetch)
+                                     ▼
+                        ┌─────────────────────────┐
+                        │        Backend          │
+                        │  Express + Middleware   │
+                        └────────────┬────────────┘
+                                     │
+                 ┌───────────────────┼───────────────────┐
+                 ▼                   ▼                   ▼
+          routes/generate.js   routes/mock.js       routes/auth.js
+          routes/endpoints.js  MockResolver.js      routes/docs.js
+          routes/traffic.js    DataGenerator.js     SessionStore.js
+                 │                   │                   │
+                 ▼                   ▼                   ▼
+          Gemini API /        Session-Scoped        Auth Middleware
+          Local Fallback      Mock Data Store        (401 Gate)
+
+
+
 ## 📁 Project Structure
 
-```text
 mockflow-ai/
+├── .kiro/
+│   └── specs/
+│       ├── design.md
+│       ├── requirements.md
+│       └── tasks.md
 ├── backend/
-│   ├── server.js
-│   ├── routes/
 │   ├── middleware/
+│   │   ├── auth.js               # Auth toggle + token validation (401 gate)
+│   │   ├── errorHandler.js       # Centralized error responses
+│   │   ├── guestSession.js       # Session creation/isolation for guests
+│   │   └── notFoundHandler.js    # 404 fallback handler
+│   ├── models/
+│   │   ├── Endpoint.js           # Endpoint/schema data model
+│   │   └── User.js               # User/session model
+│   ├── routes/
+│   │   ├── auth.js               # Auth simulation endpoints
+│   │   ├── docs.js               # Public shareable docs generation
+│   │   ├── endpoints.js          # Endpoint CRUD/listing
+│   │   ├── generate.js           # AI/fallback API generation + NL editing
+│   │   ├── mock.js               # Dynamic mock request resolver
+│   │   └── traffic.js            # Live traffic/telemetry logging
 │   ├── services/
-│   └── models/
+│   │   ├── DataGenerator.js      # Realistic mock data generation
+│   │   ├── MockResolver.js       # Resolves incoming mock requests to responses
+│   │   └── SessionStore.js       # In-memory session + schema state
+│   ├── .env / .env.example
+│   ├── package.json
+│   └── server.js                 # Express app entry point
+│
 ├── frontend/
-│   ├── vercel.json
 │   └── src/
-│       ├── pages/
 │       ├── components/
+│       │   ├── auth/
+│       │   │   └── AuthModal.jsx
+│       │   ├── dashboard/
+│       │   │   ├── RegressionLog.jsx     # Stress-run history/regression tracking
+│       │   │   └── StressTester.jsx      # Performance stress-test runner
+│       │   ├── playground/
+│       │   │   ├── EndpointPreview.jsx
+│       │   │   ├── ExportDropdown.jsx
+│       │   │   ├── MockHistorySidebar.jsx
+│       │   │   ├── ModifySchemaBar.jsx   # Natural language schema editing input
+│       │   │   ├── PromptPanel.jsx       # "Describe your API" input
+│       │   │   ├── PurgeWorkspace.jsx
+│       │   │   ├── RequestRunner.jsx     # Request Workbench (fire + inline response)
+│       │   │   ├── SandboxStudio.jsx
+│       │   │   ├── SavePromptBanner.jsx
+│       │   │   ├── SchemaEditor.jsx
+│       │   │   ├── SdkGenerator.jsx      # Multi-language SDK snippet generator
+│       │   │   ├── ShareDocs.jsx         # Public docs page content
+│       │   │   ├── ShareDocsButton.jsx
+│       │   │   └── TestRunner.jsx        # AI-generated QA test suite
+│       │   ├── ErrorBoundary.jsx
+│       │   └── SessionRehydrator.jsx     # Restores session state on refresh
+│       ├── lib/
+│       │   └── regions.js                # Simulated cloud region latency data
+│       ├── pages/
+│       │   ├── DashboardPage.jsx         # Analytics + Traffic Inspector/Stress Lab/Telemetry
+│       │   ├── DocsPage.jsx              # Public standalone docs viewer
+│       │   ├── LandingPage.jsx
+│       │   ├── NotFoundPage.jsx
+│       │   └── PlaygroundPage.jsx        # Main generate/test/edit workspace
+│       ├── services/
+│       │   ├── authService.js
+│       │   ├── endpointService.js
+│       │   └── mockService.js            # API client — fireFetch, header injection
 │       ├── store/
-│       └── services/
-├── render.yaml
+│       │   ├── authStore.js              # Auth mode/toggle state (Zustand)
+│       │   ├── playgroundStore.js        # Session, schema, endpoints state
+│       │   └── useHistoryStore.js        # Recent history + workspace switching
+│       ├── App.jsx
+│       ├── index.css
+│       └── main.jsx
+│   ├── package.json
+│   ├── postcss.config.js
+│   ├── tailwind.config.js
+│   ├── vercel.json
+│   └── vite.config.js
+│
+├── render.yaml                    # Backend deployment config (Render)
 ├── .gitignore
 └── README.md
-```
 
 ---
 
@@ -241,13 +335,6 @@ It lets developers prototype, test, secure, load-test, and document APIs — wit
 
 ---
 
-## 👥 Team
-
-| Name | Role |
-|---|---|
-| _Your Name_ | _Your Role_ |
-
----
 
 ## 📜 License
 
