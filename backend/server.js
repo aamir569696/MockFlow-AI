@@ -26,11 +26,23 @@ app.use(helmet());
 const rawOrigins = process.env.CLIENT_ORIGIN || process.env.CORS_ORIGIN || 'http://localhost:5173';
 const allowedOrigins = rawOrigins.split(',').map((o) => o.trim()).filter(Boolean);
 
+// Vercel preview deployments get a fresh, unpredictable hostname per build
+// (e.g. https://mockflow-ai-git-<branch>-<scope>.vercel.app). Rather than
+// reflecting EVERY origin on the internet (which, with credentials:true, would
+// also be spec-invalid for '*'), we allow the configured origins PLUS any
+// *.vercel.app host. Set CORS_ALLOW_ALL=true only if you truly need to reflect
+// all origins — it is an explicit, visible opt-in, never the silent default.
+const allowAllOrigins = String(process.env.CORS_ALLOW_ALL ?? '').toLowerCase() === 'true';
+const VERCEL_PREVIEW_RE = /^https:\/\/[a-z0-9-]+\.vercel\.app$/i;
+
 app.use(cors({
   origin: (origin, callback) => {
     // Allow requests with no origin (curl, Postman, Render health checks)
     if (!origin) return callback(null, true);
+    if (allowAllOrigins) return callback(null, true);
     if (allowedOrigins.includes(origin)) return callback(null, true);
+    // Allow any Vercel preview/production deployment host.
+    if (VERCEL_PREVIEW_RE.test(origin)) return callback(null, true);
     callback(new Error(`CORS: origin '${origin}' not allowed`));
   },
   credentials: true,
