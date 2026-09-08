@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto';
 import { MockResolver } from '../services/MockResolver.js';
 import { generateResponse, generateValue, seedFromKey, validateAgainstSchema } from '../services/DataGenerator.js';
 import { SessionStore } from '../services/SessionStore.js';
+import { SessionPersistence } from '../services/SessionPersistence.js';
 
 const router = Router();
 
@@ -174,7 +175,20 @@ const handleMock = async (req, res, next) => {
     // ── 3 & 4. Resolve endpoint (session-isolated, method-aware lookup) ──
     // Method-aware so a slug serving both a list GET and a create POST
     // resolves to the correct definition instead of whichever registered last.
-    const definition = MockResolver.resolve(sessionId, endpointSlug, method);
+    let definition = MockResolver.resolve(sessionId, endpointSlug, method);
+
+    // ── Cold-start rehydration ────────────────────────────────────────────
+    // On a cache MISS, the session may simply be absent from THIS serverless
+    // instance's memory after an idle recycle — while still living in trusted
+    // MongoDB storage. Attempt a one-shot server-side hydrate from the DB
+    // (gated on MONGO_URI, error-isolated) and re-resolve. No client payload is
+    // trusted: the definition is rebuilt from server-persisted documents only.
+    if (!definition && !MockResolver.sessionExists(sessionId) && SessionPersistence.enabled()) {
+      const hydrated = await SessionPersistence.hydrateSession(sessionId);
+      if (hydrated) {
+        definition = MockResolver.resolve(sessionId, endpointSlug, method);
+      }
+    }
 
     if (!definition) {
       // Distinguish "session never existed / expired" from "slug not found".
@@ -325,6 +339,8 @@ const handleMock = async (req, res, next) => {
           }));
           SessionStore.seedCollection(sessionId, collectionKey, seedItems);
           items = SessionStore.getCollection(sessionId, collectionKey);
+          // Mirror the seed to persistent storage (fire-and-forget, gated).
+          SessionPersistence.persistCollectionSeed(sessionId, collectionKey, items);
         }
 
         // Honour ?count override
@@ -368,6 +384,8 @@ const handleMock = async (req, res, next) => {
         const merged = { ...generatedDefaults, ...userBody };
 
         const newItem = SessionStore.appendToCollection(sessionId, collectionKey, merged);
+        // Mirror the append to persistent storage (fire-and-forget, gated).
+        SessionPersistence.persistCollectionAppend(sessionId, collectionKey, newItem);
 
         res.setHeader('X-MockFlow-Session',    sessionId);
         res.setHeader('X-MockFlow-Slug',       endpointSlug);
@@ -408,6 +426,8 @@ const handleMock = async (req, res, next) => {
         }
 
         const removed = SessionStore.deleteFromCollection(sessionId, collectionKey, itemId);
+        // Mirror the delete to persistent storage (fire-and-forget, gated).
+        if (removed) SessionPersistence.persistCollectionDelete(sessionId, collectionKey, itemId);
 
         if (!removed) {
           return res.status(404).json({

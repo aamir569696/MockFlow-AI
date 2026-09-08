@@ -1,5 +1,6 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { SessionStore } from './SessionStore.js';
+import { SessionPersistence } from './SessionPersistence.js';
 import { generateValue, validateAgainstSchema } from './DataGenerator.js';
 
 // ── Gemini client (lazy init) ─────────────────────────────────────────────────
@@ -752,6 +753,14 @@ function registerEditResult(sessionId, { apiName, description, schema, endpoints
 
   SessionStore.setMeta(sessionId, { apiName, description, schema });
 
+  // Mirror the re-registered set to MongoDB (replaces prior rows). Fire-and-forget,
+  // gated + error-isolated inside the adapter.
+  SessionPersistence.persistEndpoints(
+    sessionId,
+    SessionStore.getAllEndpoints(sessionId),
+    { apiName, description, schema },
+  );
+
   return {
     apiName,
     description,
@@ -867,6 +876,16 @@ export const MockResolver = {
 
     // Persist session-level metadata for the public docs page (regenerate-on-view).
     SessionStore.setMeta(sessionId, { apiName, description, schema });
+
+    // Mirror the freshly-registered set to MongoDB (trusted, server-side) so the
+    // session survives a serverless cold-start. Fire-and-forget: the adapter is
+    // gated on MONGO_URI and error-isolated, so this never blocks or breaks the
+    // response when persistence is off or the cluster hiccups.
+    SessionPersistence.persistEndpoints(
+      sessionId,
+      SessionStore.getAllEndpoints(sessionId),
+      { apiName, description, schema },
+    );
 
     return {
       apiName,

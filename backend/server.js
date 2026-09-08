@@ -7,6 +7,7 @@ import morgan from 'morgan';
 import { guestSessionMiddleware } from './middleware/guestSession.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { notFoundHandler } from './middleware/notFoundHandler.js';
+import { connectMongo, isMongoEnabled } from './config/db.js';
 
 import authRoutes from './routes/auth.js';
 import generateRoutes from './routes/generate.js';
@@ -17,6 +18,21 @@ import docsRoutes from './routes/docs.js';
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+
+// ── Persistence layer (optional) ───────────────────────────────────────────────
+// Warm the cached MongoDB connection at startup when MONGO_URI is configured.
+// Gated + error-isolated: if absent or unreachable, the app runs entirely on the
+// in-memory SessionStore. connectMongo() caches the connection across serverless
+// invocations, so this is safe to call eagerly here and lazily per-request.
+if (isMongoEnabled()) {
+  connectMongo()
+    .then((conn) => {
+      if (!conn) console.warn('[MockFlow AI] MONGO_URI set but connection unavailable — using in-memory store.');
+    })
+    .catch(() => { /* already logged in connectMongo; in-memory fallback applies */ });
+} else {
+  console.info('[MockFlow AI] No MONGO_URI — running with in-memory session store (ephemeral).');
+}
 
 // ── Security & parsing middleware ──────────────────────────────────────────────
 app.use(helmet());

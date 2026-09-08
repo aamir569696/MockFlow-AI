@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import { SessionStore } from '../services/SessionStore.js';
+import { SessionPersistence } from '../services/SessionPersistence.js';
+import { MockResolver } from '../services/MockResolver.js';
 import { generateValue } from '../services/DataGenerator.js';
 
 const router = Router();
@@ -44,13 +46,20 @@ function sampleRequestBody(def) {
  * page needs. Regenerated on each view from the current session state, so it
  * reflects live schema edits automatically.
  */
-router.get('/:sessionId', (req, res) => {
+router.get('/:sessionId', async (req, res) => {
   const sessionId = String(req.params.sessionId || '').toLowerCase();
 
   if (!UUID_RE.test(sessionId)) {
     return res.status(400).json({
       error: { code: 'INVALID_SESSION_ID', message: 'Session ID must be a valid UUID v4.' },
     });
+  }
+
+  // Cold-start rehydration: if this instance has no record of the session,
+  // rebuild it from trusted MongoDB storage so shared/public docs links survive
+  // a serverless recycle. Gated on MONGO_URI + error-isolated.
+  if (!MockResolver.sessionExists(sessionId) && SessionPersistence.enabled()) {
+    await SessionPersistence.hydrateSession(sessionId);
   }
 
   const meta = SessionStore.getMeta(sessionId);
