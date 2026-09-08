@@ -218,6 +218,30 @@ export const usePlaygroundStore = create(
           },
         })),
 
+      /**
+       * switchWorkspace — make a previously-generated API (from history) the
+       * active workspace. Swaps the session context (sessionId, apiName,
+       * description, schema, endpoints) so every session-scoped view — the
+       * endpoint list, Request Workbench URLs, SDK snippets, docs link — reflects
+       * the selected workspace. Syncs mockService so the axios session header
+       * matches. Purely a client-side state swap (no full reload).
+       *
+       * @param {{ sessionId, apiName, apiDescription, endpoints, schema, prompt }} entry
+       */
+      switchWorkspace: (entry) => {
+        if (!entry?.sessionId) return;
+        mockService.setSessionId(entry.sessionId);
+        set({
+          sessionId:       entry.sessionId,
+          apiName:         entry.apiName        ?? '',
+          apiDescription:  entry.apiDescription ?? entry.description ?? '',
+          generatedSchema: entry.schema         ?? {},
+          endpoints:       entry.endpoints      ?? [],
+          prompt:          entry.prompt         ?? get().prompt,
+          activeEndpoint:  null,
+        });
+      },
+
       setRunnerMethod: (method) =>
         set((state) => ({ runner: { ...state.runner, method } })),
 

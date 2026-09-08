@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore.js';
 import { usePlaygroundStore } from '../store/playgroundStore.js';
+import { useHistoryStore } from '../store/useHistoryStore.js';
 import StressTester from '../components/dashboard/StressTester.jsx';
 import RegressionLog from '../components/dashboard/RegressionLog.jsx';
 
@@ -416,15 +417,135 @@ function MicroTelemetry({ compileMeta }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Workspace Quick-Switch dropdown
+// ─────────────────────────────────────────────────────────────────────────────
+
+function relativeSaved(iso) {
+  try {
+    const diff = Date.now() - new Date(iso).getTime();
+    const m = Math.floor(diff / 60000);
+    if (m < 1)  return 'just now';
+    if (m < 60) return `${m}m ago`;
+    const h = Math.floor(m / 60);
+    if (h < 24) return `${h}h ago`;
+    return `${Math.floor(h / 24)}d ago`;
+  } catch { return ''; }
+}
+
+/**
+ * WorkspaceSwitcher — "📂 Active Workspace / Quick Switch".
+ *
+ * Lists every previously-generated API from the playground history store
+ * (name + short sessionId). Selecting one makes it the active workspace: it
+ * calls switchWorkspace() to swap the session context and notifies the parent
+ * so the endpoint list re-renders against the chosen workspace payload.
+ */
+function WorkspaceSwitcher({ entries, activeSessionId, onSelect }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDocClick = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDocClick);
+    window.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDocClick); window.removeEventListener('keydown', onKey); };
+  }, [open]);
+
+  const active = entries.find((e) => e.sessionId === activeSessionId) ?? null;
+
+  return (
+    <div ref={ref} className="relative w-full sm:w-80">
+      <button
+        type="button"
+        onClick={() => entries.length && setOpen((o) => !o)}
+        disabled={!entries.length}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        className="flex w-full items-center gap-2.5 rounded-xl border border-gray-800/80
+                   bg-gray-900/60 px-3.5 py-2.5 text-left backdrop-blur-sm transition-colors
+                   hover:border-gray-700 focus-visible:outline-none focus-visible:ring-2
+                   focus-visible:ring-brand-500 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        <span className="text-base leading-none" aria-hidden="true">📂</span>
+        <span className="flex min-w-0 flex-col">
+          <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-600">
+            Active Workspace
+          </span>
+          <span className="truncate text-sm font-semibold text-gray-200">
+            {active ? active.apiName : (entries.length ? 'Select a workspace…' : 'No workspaces yet')}
+          </span>
+        </span>
+        <svg className={`ml-auto h-4 w-4 shrink-0 text-gray-600 transition-transform ${open ? 'rotate-180' : ''}`}
+             fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {open && (
+        <div
+          role="listbox"
+          className="absolute z-30 mt-2 max-h-80 w-full overflow-y-auto rounded-xl border
+                     border-gray-800 bg-gray-900/95 p-1.5 shadow-2xl shadow-black/60 backdrop-blur-md
+                     animate-fade-in"
+        >
+          <p className="px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-widest text-gray-700">
+            Quick Switch · {entries.length} generated {entries.length === 1 ? 'API' : 'APIs'}
+          </p>
+          {entries.map((e) => {
+            const isActive = e.sessionId === activeSessionId;
+            return (
+              <button
+                key={e.id}
+                type="button"
+                role="option"
+                aria-selected={isActive}
+                onClick={() => { onSelect(e); setOpen(false); }}
+                className={`flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2 text-left
+                            transition-colors
+                            ${isActive ? 'bg-brand-950/40 ring-1 ring-brand-700/40' : 'hover:bg-gray-800/60'}`}
+              >
+                <span className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${isActive ? 'bg-emerald-400 animate-pulse' : 'bg-gray-700'}`} />
+                <span className="flex min-w-0 flex-1 flex-col">
+                  <span className="truncate text-xs font-semibold text-gray-200">{e.apiName}</span>
+                  <span className="flex items-center gap-2 text-[10px] text-gray-600">
+                    <span className="font-mono">{e.sessionId?.slice(0, 8)}…</span>
+                    <span>·</span>
+                    <span>{e.endpoints?.length ?? 0} endpoints</span>
+                    {e.savedAt && (<><span>·</span><span>{relativeSaved(e.savedAt)}</span></>)}
+                  </span>
+                </span>
+                {isActive && (
+                  <span className="shrink-0 rounded-full bg-emerald-950/60 px-1.5 py-0.5 text-[9px]
+                                   font-bold text-emerald-400 ring-1 ring-emerald-800/50">
+                    ACTIVE
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // DashboardPage
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
   const { isAuthenticated, user, sandboxApiKey, savedCollections } = useAuthStore();
-  const { requestLog, compileMeta } = usePlaygroundStore();
+  const { requestLog, compileMeta, sessionId, switchWorkspace } = usePlaygroundStore();
+  const historyEntries = useHistoryStore((s) => s.entries);
   const navigate = useNavigate();
 
   const [activeColIdx, setActiveColIdx] = useState(0);
+
+  // The workspace chosen from the Quick-Switch dropdown (a history entry).
+  // When set, it drives the endpoint tree instead of the saved collection.
+  const [selectedWorkspace, setSelectedWorkspace] = useState(null);
 
   // Right-pane monitoring sub-tab: 'traffic' | 'stress' | 'telemetry'
   const [monitorTab, setMonitorTab] = useState('traffic');
@@ -436,7 +557,14 @@ export default function DashboardPage() {
 
   if (!isAuthenticated) return null;
 
-  const activeCol = savedCollections[activeColIdx] ?? null;
+  // Quick-Switch selection wins; otherwise fall back to the saved collection.
+  // Both share the { apiName, sessionId, endpoints } shape the tree needs.
+  const activeCol = selectedWorkspace ?? savedCollections[activeColIdx] ?? null;
+
+  const handleWorkspaceSwitch = (entry) => {
+    setSelectedWorkspace(entry);   // re-renders the endpoint tree instantly
+    switchWorkspace(entry);        // swaps the live playground session context
+  };
 
   // ── Derived metrics ────────────────────────────────────────────────────────
   const totalEndpoints = savedCollections.reduce((s, c) => s + c.endpoints.length, 0);
@@ -609,6 +737,21 @@ export default function DashboardPage() {
           />
         </div>
 
+        {/* ── Active Workspace / Quick Switch ──────────────────────────── */}
+        <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <WorkspaceSwitcher
+            entries={historyEntries}
+            activeSessionId={selectedWorkspace?.sessionId ?? sessionId}
+            onSelect={handleWorkspaceSwitch}
+          />
+          {activeCol && (
+            <span className="text-[11px] text-gray-600">
+              Viewing <span className="font-semibold text-gray-400">{activeCol.apiName}</span>
+              {' '}· session <span className="font-mono">{activeCol.sessionId?.slice(0, 8)}…</span>
+            </span>
+          )}
+        </div>
+
         {/* ── Full-Width Vertical Sequential Grid ──────────────────────── */}
         {/* Collections + Endpoint routers (full width) stacked above the    */}
         {/* full-width tabbed monitoring command center.                     */}
@@ -644,8 +787,8 @@ export default function DashboardPage() {
                   <CollectionCard
                     key={col.id}
                     col={col}
-                    isActive={i === activeColIdx}
-                    onSelect={() => setActiveColIdx(i)}
+                    isActive={!selectedWorkspace && i === activeColIdx}
+                    onSelect={() => { setSelectedWorkspace(null); setActiveColIdx(i); }}
                   />
                 ))}
               </div>

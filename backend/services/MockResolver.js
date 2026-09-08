@@ -527,6 +527,240 @@ function buildLocalTestIntents(endpoints, schema, authEnabled) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// LOCAL SCHEMA REFINER (rate-limit / AI-failure fallback)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Map a plain-English type word to a JSON-Schema property spec. */
+function specForTypeWord(word = '') {
+  const w = word.toLowerCase().trim();
+  const map = {
+    number:   { type: 'number' },
+    float:    { type: 'number' },
+    decimal:  { type: 'number' },
+    price:    { type: 'number' },
+    integer:  { type: 'integer' },
+    int:      { type: 'integer' },
+    count:    { type: 'integer' },
+    boolean:  { type: 'boolean' },
+    bool:     { type: 'boolean' },
+    flag:     { type: 'boolean' },
+    string:   { type: 'string' },
+    text:     { type: 'string' },
+    email:    { type: 'string', format: 'email' },
+    uuid:     { type: 'string', format: 'uuid' },
+    id:       { type: 'string', format: 'uuid' },
+    url:      { type: 'string', format: 'uri' },
+    uri:      { type: 'string', format: 'uri' },
+    date:     { type: 'string', format: 'date-time' },
+    datetime: { type: 'string', format: 'date-time' },
+    timestamp:{ type: 'string', format: 'date-time' },
+    array:    { type: 'array', items: { type: 'string' } },
+    list:     { type: 'array', items: { type: 'string' } },
+    object:   { type: 'object' },
+  };
+  return map[w] ? { ...map[w] } : null;
+}
+
+/**
+ * localSchemaRefine — deterministic, regex-based editor for common structural
+ * commands. Used as a fallback when the Gemini call is rate-limited (429) or
+ * otherwise unavailable, so iterative editing keeps working offline.
+ *
+ * Supported commands (case-insensitive):
+ *   • "add <field> [field|property] [as|of type] <type> to <resource>"
+ *   • "add <field> to <resource>"                      (defaults to string)
+ *   • "remove|delete <field> from <resource>"
+ *   • "make <field> required [in <resource>]"
+ *   • "rename <old> to <new> [in <resource>]"
+ *
+ * @returns {{ schema, endpoints, changeSummary, affectedEndpoints } | null}
+ *          null when the instruction matches no known pattern (caller should
+ *          then surface a clear "rephrase" message — never a silent no-op).
+ */
+function localSchemaRefine(schema, endpoints, instruction) {
+  const raw = String(instruction ?? '').trim();
+  if (!raw || !schema || typeof schema !== 'object') return null;
+
+  // Deep-clone so a failed/partial parse can't mutate the live schema.
+  const next = JSON.parse(JSON.stringify(schema));
+  const eps  = Array.isArray(endpoints) ? endpoints : [];
+
+  const ensureProps = (res) => {
+    if (!next[res]) next[res] = { type: 'object', properties: {} };
+    if (!next[res].properties) next[res].properties = {};
+    return next[res].properties;
+  };
+  const affected = (res) =>
+    eps.filter((e) => e.resource === res).map((e) => e.slug);
+
+  // ── ADD field ────────────────────────────────────────────────────────────
+  // Resolve a captured Model name to the real schema key, case-insensitively
+  // and tolerant of plural/singular ("product"/"products" → "Product"). This is
+  // the key hardening: the captured word rarely matches the stored key's casing.
+  const matchModelKey = (hint) => {
+    if (!hint) return null;
+    const keys = Object.keys(next);
+    const h = hint.toLowerCase().replace(/s$/, '');   // normalise, drop trailing plural
+    return (
+      keys.find((k) => k.toLowerCase() === hint.toLowerCase()) ||       // exact (case-insensitive)
+      keys.find((k) => k.toLowerCase().replace(/s$/, '') === h) ||      // singular/plural
+      null
+    );
+  };
+  // When no model is named, fall back to the sole resource (unambiguous) or,
+  // failing that, scan the raw instruction for any known resource name.
+  const soleResource = () => {
+    const keys = Object.keys(next);
+    if (keys.length === 1) return keys[0];
+    return keys.find((k) => new RegExp(`\\b${k.toLowerCase()}s?\\b`).test(raw.toLowerCase())) ?? null;
+  };
+
+  // ── ADD field ──────────────────────────────────────────────────────────────
+  // Primary (strict) form — matches the canonical instruction exactly:
+  //   "add <fieldName> field|property as <type> to <Model>"
+  let m = raw.match(/add\s+(\w+)\s+(?:field|property)\s+as\s+(\w+)\s+to\s+(\w+)/i);
+  // Looser fallback form so natural phrasings still work:
+  //   "add <field> [field|property] [as|of type|type|:] <type>] to|in|on <Model>"
+  if (!m) {
+    m = raw.match(/\badd\s+(?:a|an\s+)?(?:the\s+)?["'`]?(\w+)["'`]?\s*(?:field|property|attribute|column)?\s*(?:(?:as|of\s+type|type|:)\s*["'`]?([a-zA-Z]+)["'`]?)?\s*(?:to|on|in|into)\s+["'`]?(\w+)["'`]?/i);
+  }
+  if (m) {
+    const field    = m[1];
+    const typeWord = (m[2] || 'string').toLowerCase();
+    const model    = matchModelKey(m[3]);
+    if (!model) return null;   // couldn't map the Model → caller asks to rephrase
+
+    // Direct structural injection into the active schema, per spec: number stays
+    // a number, everything else defaults to string. specForTypeWord adds richer
+    // types/formats (integer, boolean, email, date…) when recognised.
+    const spec = specForTypeWord(typeWord)
+      ?? { type: typeWord === 'number' ? 'number' : 'string' };
+    const props = ensureProps(model);
+    props[field] = { ...spec, description: 'Custom appended field' };
+
+    return {
+      schema: next, endpoints: eps,
+      changeSummary: `Added \`${field}\` (${spec.type}${spec.format ? `/${spec.format}` : ''}) to ${model}`,
+      affectedEndpoints: affected(model),
+    };
+  }
+
+  // ── REMOVE field ───────────────────────────────────────────────────────────
+  m = raw.match(/\b(?:remove|delete|drop)\s+(?:the\s+)?["'`]?([a-zA-Z_][a-zA-Z0-9_]*)["'`]?\s*(?:field|property|attribute|column)?\s*(?:from|on|in)?\s*([a-zA-Z_][a-zA-Z0-9_]*)?/i);
+  if (m) {
+    const field = m[1];
+    const res = matchModelKey(m[2]) ?? soleResource();
+    if (!res) return null;
+    const props = ensureProps(res);
+    if (!(field in props)) return null;   // nothing to remove → let caller ask to rephrase
+    delete props[field];
+    if (Array.isArray(next[res].required)) {
+      next[res].required = next[res].required.filter((f) => f !== field);
+    }
+    return {
+      schema: next, endpoints: eps,
+      changeSummary: `Removed \`${field}\` from ${res}`,
+      affectedEndpoints: affected(res),
+    };
+  }
+
+  // ── MAKE required ───────────────────────────────────────────────────────────
+  m = raw.match(/\bmake\s+(?:the\s+)?["'`]?([a-zA-Z_][a-zA-Z0-9_]*)["'`]?\s*(?:field)?\s*required(?:\s+(?:in|on|for)\s+([a-zA-Z_][a-zA-Z0-9_]*))?/i);
+  if (m) {
+    const field = m[1];
+    const res = matchModelKey(m[2]) ?? soleResource();
+    if (!res) return null;
+    const props = ensureProps(res);
+    if (!(field in props)) return null;
+    const req = new Set(next[res].required ?? []);
+    req.add(field);
+    next[res].required = [...req];
+    return {
+      schema: next, endpoints: eps,
+      changeSummary: `Marked \`${field}\` as required on ${res}`,
+      affectedEndpoints: affected(res),
+    };
+  }
+
+  // ── RENAME field ─────────────────────────────────────────────────────────────
+  m = raw.match(/\brename\s+(?:the\s+)?["'`]?([a-zA-Z_][a-zA-Z0-9_]*)["'`]?\s+to\s+["'`]?([a-zA-Z_][a-zA-Z0-9_]*)["'`]?(?:\s+(?:in|on|for)\s+([a-zA-Z_][a-zA-Z0-9_]*))?/i);
+  if (m) {
+    const [, from, to, resHint] = m;
+    const res = matchModelKey(resHint) ?? soleResource();
+    if (!res) return null;
+    const props = ensureProps(res);
+    if (!(from in props)) return null;
+    props[to] = props[from];
+    delete props[from];
+    if (Array.isArray(next[res].required)) {
+      next[res].required = next[res].required.map((f) => (f === from ? to : f));
+    }
+    return {
+      schema: next, endpoints: eps,
+      changeSummary: `Renamed \`${from}\` → \`${to}\` on ${res}`,
+      affectedEndpoints: affected(res),
+    };
+  }
+
+  // No known pattern matched.
+  return null;
+}
+
+/**
+ * registerEditResult — shared tail for editSchema: re-register the endpoint set
+ * for the session, persist docs meta, and shape the response. Used by BOTH the
+ * AI path and the local-refiner fallback so behaviour is identical.
+ */
+function registerEditResult(sessionId, { apiName, description, schema, endpoints, changeSummary, affectedEndpoints, source }) {
+  SessionStore.clearEndpoints(sessionId);
+
+  const collectionResources = new Set(
+    endpoints.filter((e) => e.isCollection && e.resource).map((e) => e.resource)
+  );
+
+  const registeredEndpoints = [];
+  for (const ep of endpoints) {
+    const slug = sanitiseSlug(ep.slug);
+    const resource = ep.resource || Object.keys(schema)[0] || 'Item';
+    const resourceSchema = schema[resource] || { type: 'object', properties: {} };
+    const method = (ep.method || 'GET').toUpperCase();
+    const isCollection = Boolean(ep.isCollection)
+      || (['POST', 'DELETE'].includes(method) && collectionResources.has(resource));
+
+    const definition = {
+      slug, method,
+      description: ep.description || '',
+      resource, isCollection,
+      schema: resourceSchema,
+      responseSchema: resourceSchema,
+      createdAt: Date.now(),
+    };
+    SessionStore.setEndpoint(sessionId, slug, definition);
+    registeredEndpoints.push({
+      slug,
+      method: definition.method,
+      description: definition.description,
+      isCollection: definition.isCollection,
+      resource,
+      path: `/api/mock/${sessionId}/${slug}`,
+      _source: source,
+    });
+  }
+
+  SessionStore.setMeta(sessionId, { apiName, description, schema });
+
+  return {
+    apiName,
+    description,
+    schema,
+    endpoints: registeredEndpoints,
+    changeSummary: changeSummary || 'Schema updated.',
+    affectedEndpoints: Array.isArray(affectedEndpoints) ? affectedEndpoints : [],
+    _source: source,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Public API
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -657,16 +891,44 @@ export const MockResolver = {
    * @throws {Error} with code 'AMBIGUOUS_INSTRUCTION' when the AI can't map it
    */
   async editSchema(sessionId, instruction, currentSchema, currentEndpoints) {
-    // Gemini is REQUIRED for edits — there is no reliable local NL-editing
-    // fallback, so if it's unavailable we surface a clear, recoverable error
-    // rather than silently corrupting the schema.
+    const meta = SessionStore.getMeta(sessionId);
+
+    // Local deterministic fallback — used when the AI is rate-limited (429),
+    // quota-exceeded, key-missing, or otherwise unavailable. Handles common
+    // structural commands (add/remove/rename field, make required) so iterative
+    // editing keeps working with zero downtime.
+    const tryLocalFallback = (cause) => {
+      const refined = localSchemaRefine(currentSchema, currentEndpoints, instruction);
+      if (refined) {
+        return registerEditResult(sessionId, {
+          apiName:     meta?.apiName ?? 'Mock API',
+          description: meta?.description ?? '',
+          schema:      refined.schema,
+          endpoints:   refined.endpoints,
+          changeSummary: `${refined.changeSummary} (offline refiner — AI was unavailable)`,
+          affectedEndpoints: refined.affectedEndpoints,
+          source:      'local',
+        });
+      }
+      // The command isn't one the local refiner understands. Be honest: ask the
+      // user to rephrase into a supported structural command rather than
+      // silently no-op'ing or corrupting the schema.
+      const e = new Error(
+        `AI editing is temporarily unavailable and this command couldn't be applied offline. ` +
+        `Try a simple structural edit like "add discount field as number to Product", ` +
+        `"remove tags from Post", "make email required", or "rename body to content".`
+      );
+      e.code = 'AMBIGUOUS_INSTRUCTION';
+      e.cause = cause;
+      throw e;
+    };
+
+    // If the model can't even be constructed (no API key), go straight to local.
     let model;
     try {
       model = getModel();
-    } catch {
-      const e = new Error('AI editing is unavailable right now. Please try again shortly.');
-      e.code = 'AI_UNAVAILABLE';
-      throw e;
+    } catch (keyErr) {
+      return tryLocalFallback(keyErr?.message ?? 'no api key');
     }
 
     // Defensively serialise the session context. safeStringify escapes quotes,
@@ -702,21 +964,11 @@ USER_INSTRUCTION: ${instruction}`;
       });
       parsed = safeParseJSON(result.response.text());
     } catch (err) {
-      // Surface the REAL reason so a 502 is diagnosable (missing key vs model
-      // error vs parse failure) instead of a generic, misleading message.
+      // AI call failed (429 quota, network, parse, etc.). Instead of failing,
+      // attempt the deterministic local refiner so editing survives the outage.
       const raw = err?.message ?? '';
-      let reason = 'Could not process that edit. Please rephrase and try again.';
-      if (/API_KEY|api key|permission|PERMISSION_DENIED|401|403/i.test(raw)) {
-        reason = 'AI editing is unavailable — the Gemini API key is missing or invalid.';
-      } else if (/quota|429|rate/i.test(raw)) {
-        reason = 'AI editing is temporarily rate-limited. Please try again shortly.';
-      } else if (/JSON|parse|Unexpected token/i.test(raw)) {
-        reason = 'The AI returned an unreadable response. Please try again.';
-      }
-      const e = new Error(reason);
-      e.code = 'EDIT_FAILED';
-      e.cause = raw;
-      throw e;
+      console.warn(`[editSchema] AI unavailable (${raw.slice(0, 120)}) — attempting local refiner.`);
+      return tryLocalFallback(raw);
     }
 
     // The model signals it couldn't confidently map the instruction.
@@ -739,60 +991,18 @@ USER_INSTRUCTION: ${instruction}`;
       throw e;
     }
 
-    const apiName     = parsed.apiName ?? SessionStore.getMeta(sessionId)?.apiName ?? 'Mock API';
-    const description = parsed.description ?? SessionStore.getMeta(sessionId)?.description ?? '';
-    const schema      = parsed.schema;
-    const endpoints   = parsed.endpoints;
-
-    // ── Re-register endpoints (replace the old set for this session) ────────
-    SessionStore.clearEndpoints(sessionId);
-
-    const collectionResources = new Set(
-      endpoints.filter((e) => e.isCollection && e.resource).map((e) => e.resource)
-    );
-
-    const registeredEndpoints = [];
-    for (const ep of endpoints) {
-      const slug = sanitiseSlug(ep.slug);
-      const resource = ep.resource || Object.keys(schema)[0] || 'Item';
-      const resourceSchema = schema[resource] || { type: 'object', properties: {} };
-      const method = (ep.method || 'GET').toUpperCase();
-      const isCollection = Boolean(ep.isCollection)
-        || (['POST', 'DELETE'].includes(method) && collectionResources.has(resource));
-
-      const definition = {
-        slug, method,
-        description: ep.description || '',
-        resource, isCollection,
-        schema: resourceSchema,
-        responseSchema: resourceSchema,
-        createdAt: Date.now(),
-      };
-      SessionStore.setEndpoint(sessionId, slug, definition);
-      registeredEndpoints.push({
-        slug,
-        method: definition.method,
-        description: definition.description,
-        isCollection: definition.isCollection,
-        resource,
-        path: `/api/mock/${sessionId}/${slug}`,
-        _source: 'ai',
-      });
-    }
-
-    SessionStore.setMeta(sessionId, { apiName, description, schema });
-
-    return {
-      apiName,
-      description,
-      schema,
-      endpoints: registeredEndpoints,
+    // ── AI success → register via the shared tail ───────────────────────────
+    return registerEditResult(sessionId, {
+      apiName:     parsed.apiName     ?? meta?.apiName     ?? 'Mock API',
+      description: parsed.description ?? meta?.description ?? '',
+      schema:      parsed.schema,
+      endpoints:   parsed.endpoints,
       changeSummary: typeof parsed.changeSummary === 'string' && parsed.changeSummary.trim()
         ? parsed.changeSummary.trim()
         : 'Schema updated.',
-      affectedEndpoints: Array.isArray(parsed.affectedEndpoints) ? parsed.affectedEndpoints : [],
-      _source: 'ai',
-    };
+      affectedEndpoints: parsed.affectedEndpoints,
+      source:      'ai',
+    });
   },
 
   /**
