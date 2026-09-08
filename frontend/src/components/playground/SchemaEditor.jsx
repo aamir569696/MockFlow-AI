@@ -428,9 +428,9 @@ const TABS = ['graph', 'tree', 'raw', 'docs'];
 export default function SchemaEditor() {
   const { generatedSchema, isGenerating } = usePlaygroundStore();
   const [viewMode, setViewMode] = useState('graph');
-  // Collapsed by default — viewing the schema is a secondary action. The user
-  // expands it explicitly via the header chevron.
-  const [collapsed, setCollapsed] = useState(true);
+  // Expanded by default — the Graph/Tree/Raw/Docs views are shown immediately
+  // on mount. The user can still collapse the panel via the header chevron.
+  const [collapsed, setCollapsed] = useState(false);
 
   return (
     <div className="card flex flex-col gap-3"

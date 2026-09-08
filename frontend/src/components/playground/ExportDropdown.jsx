@@ -233,7 +233,8 @@ export default function ExportDropdown({ compact = false }) {
       {/* Dropdown panel */}
       {open && (
         <div
-          className="absolute right-0 z-50 mt-2 w-72 animate-fade-in
+          className="absolute right-0 left-auto z-50 mt-2 origin-top-right
+                     w-[88vw] max-w-sm sm:w-72 animate-fade-in
                      rounded-xl border border-gray-700/80 bg-gray-900
                      shadow-2xl shadow-black/60 ring-1 ring-black/20"
           role="menu"

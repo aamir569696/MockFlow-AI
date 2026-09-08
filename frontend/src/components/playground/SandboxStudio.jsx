@@ -209,7 +209,8 @@ export default function SandboxStudio() {
       <div
         role="tablist"
         aria-label="Sandbox Studio"
-        className="flex shrink-0 items-stretch gap-1 border-b border-gray-800/60 p-1.5"
+        className="flex items-center gap-2 overflow-x-auto whitespace-nowrap
+                   scrollbar-none pb-1 w-full max-w-full border-b border-gray-800/60 p-1.5"
         style={{ background: 'rgba(15,23,42,0.6)' }}
       >
         {STUDIO_TABS.map((t) => {
@@ -224,7 +225,7 @@ export default function SandboxStudio() {
               aria-controls={`studio-panel-${t.id}`}
               id={`studio-tab-${t.id}`}
               onClick={() => handleTabClick(t.id)}
-              className={`group relative flex flex-1 items-center justify-center gap-2
+              className={`group relative flex flex-shrink-0 items-center justify-center gap-2
                           rounded-lg border-b-2 px-3 py-2.5 text-xs font-semibold
                           tracking-wide transition-all duration-200
                           focus-visible:outline-none focus-visible:ring-2
