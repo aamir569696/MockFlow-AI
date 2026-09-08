@@ -292,9 +292,12 @@ export const usePlaygroundStore = create(
       /**
        * purgeWorkspace — nuclear reset.
        *
-       * 1. Wipe every MockFlow localStorage key (playground state, auth,
-       *    history, and the raw session UUID used by the axios interceptor).
-       * 2. Reset all Zustand state slices to their initial values.
+       * 1. Wipe the active MockFlow localStorage keys (playground state, auth,
+       *    and the raw session UUID used by the axios interceptor). The saved
+       *    generation history ('mf_mock_history') is PRESERVED so previously
+       *    saved workspaces stay available in the Dashboard switcher.
+       * 2. Reset the active Zustand playground slices to baseline (the history
+       *    store is intentionally left intact).
        * 3. Request GET /health — the guestSessionMiddleware issues a fresh
        *    cryptographically random UUID v4 and echoes it as the
        *    x-mockflow-session header.  The axios response interceptor in
@@ -306,16 +309,19 @@ export const usePlaygroundStore = create(
        * No page refresh. No hard reload. Fully reactive.
        */
       purgeWorkspace: async () => {
-        // ── 1. Wipe all persisted MockFlow storage keys ──────────────────
-        const STORAGE_KEYS = ['mf_playground', 'mf_auth', 'mf_mock_history', 'mf_session_id'];
+        // ── 1. Wipe persisted MockFlow storage keys ──────────────────────
+        // Intentionally EXCLUDES 'mf_mock_history': the saved-workspaces list
+        // that powers the Dashboard Quick-Switch dropdown must survive a purge
+        // so previously generated APIs remain accessible across purges.
+        const STORAGE_KEYS = ['mf_playground', 'mf_auth', 'mf_session_id'];
         STORAGE_KEYS.forEach((k) => localStorage.removeItem(k));
 
         // ── 2. Wipe zustand state (auth store too, via its own clear) ─────
-        // Import lazily to avoid circular-dependency at module level
-        const { useAuthStore }    = await import('./authStore.js');
-        const { useHistoryStore } = await import('./useHistoryStore.js');
+        // Import lazily to avoid circular-dependency at module level.
+        // NOTE: the generation history store (saved workspaces) is deliberately
+        // NOT cleared here — purge resets the active session, not the archive.
+        const { useAuthStore } = await import('./authStore.js');
         useAuthStore.getState().clearAuth();
-        useHistoryStore.getState().clear();
 
         // Clear the Performance Regression Log (analytics history) so old
         // stress-test runs don't leak onto the next dashboard mount. Wipes
