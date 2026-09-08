@@ -612,7 +612,10 @@ function localSchemaRefine(schema, endpoints, instruction) {
   const soleResource = () => {
     const keys = Object.keys(next);
     if (keys.length === 1) return keys[0];
-    return keys.find((k) => new RegExp(`\\b${k.toLowerCase()}s?\\b`).test(raw.toLowerCase())) ?? null;
+    // Escape regex metacharacters in the key before building the probe pattern
+    // so a resource name containing e.g. '.' or '(' can never throw here.
+    const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return keys.find((k) => new RegExp(`\\b${escapeRe(k.toLowerCase())}s?\\b`).test(raw.toLowerCase())) ?? null;
   };
 
   // ── ADD field ──────────────────────────────────────────────────────────────
