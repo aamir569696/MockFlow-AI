@@ -650,7 +650,7 @@ function localSchemaRefine(schema, endpoints, instruction) {
   }
 
   // ── REMOVE field ───────────────────────────────────────────────────────────
-  m = raw.match(/\b(?:remove|delete|drop)\s+(?:the\s+)?["'`]?([a-zA-Z_][a-zA-Z0-9_]*)["'`]?\s*(?:field|property|attribute|column)?\s*(?:from|on|in)?\s*([a-zA-Z_][a-zA-Z0-9_]*)?/i);
+  m = raw.match(/\b(?:remove|delete|drop)\s+(?:the\s+)?["'`]?([a-zA-Z_][a-zA-Z0-9_]*)["'`]?\s*(?:field|property|attribute|column)?\s*(?:from|on|in|to|into|of)?\s*([a-zA-Z_][a-zA-Z0-9_]*)?/i);
   if (m) {
     const field = m[1];
     const res = matchModelKey(m[2]) ?? soleResource();
@@ -669,7 +669,7 @@ function localSchemaRefine(schema, endpoints, instruction) {
   }
 
   // ── MAKE required ───────────────────────────────────────────────────────────
-  m = raw.match(/\bmake\s+(?:the\s+)?["'`]?([a-zA-Z_][a-zA-Z0-9_]*)["'`]?\s*(?:field)?\s*required(?:\s+(?:in|on|for)\s+([a-zA-Z_][a-zA-Z0-9_]*))?/i);
+  m = raw.match(/\bmake\s+(?:the\s+)?["'`]?([a-zA-Z_][a-zA-Z0-9_]*)["'`]?\s*(?:field)?\s*required(?:\s+(?:in|on|for|to|of)\s+([a-zA-Z_][a-zA-Z0-9_]*))?/i);
   if (m) {
     const field = m[1];
     const res = matchModelKey(m[2]) ?? soleResource();
@@ -687,7 +687,7 @@ function localSchemaRefine(schema, endpoints, instruction) {
   }
 
   // ── RENAME field ─────────────────────────────────────────────────────────────
-  m = raw.match(/\brename\s+(?:the\s+)?["'`]?([a-zA-Z_][a-zA-Z0-9_]*)["'`]?\s+to\s+["'`]?([a-zA-Z_][a-zA-Z0-9_]*)["'`]?(?:\s+(?:in|on|for)\s+([a-zA-Z_][a-zA-Z0-9_]*))?/i);
+  m = raw.match(/\brename\s+(?:the\s+)?["'`]?([a-zA-Z_][a-zA-Z0-9_]*)["'`]?\s+to\s+["'`]?([a-zA-Z_][a-zA-Z0-9_]*)["'`]?(?:\s+(?:in|on|for|of)\s+([a-zA-Z_][a-zA-Z0-9_]*))?/i);
   if (m) {
     const [, from, to, resHint] = m;
     const res = matchModelKey(resHint) ?? soleResource();
