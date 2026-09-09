@@ -563,6 +563,35 @@ function specForTypeWord(word = '') {
 }
 
 /**
+ * inferSpecFromFieldName — when an ADD instruction omits an explicit type word
+ * ("add a discount field to Product"), make a best-effort guess from the field
+ * NAME so numeric/boolean/format-y fields don't all silently become strings.
+ * Returns a JSON-Schema spec, or null when nothing confidently matches (caller
+ * then defaults to string).
+ */
+function inferSpecFromFieldName(field = '') {
+  const f = String(field).toLowerCase();
+  // Numeric-sounding fields.
+  if (/(?:^|_)(price|amount|total|cost|balance|salary|fee|rate|discount|tax|qty|quantity|count|age|score|stock|weight|height|width|length|duration|number|num)(?:$|_)/.test(f)) {
+    // Whole-number-ish names lean integer; money/measure names lean number.
+    if (/(?:^|_)(qty|quantity|count|age|stock|num|number)(?:$|_)/.test(f)) return { type: 'integer' };
+    return { type: 'number' };
+  }
+  // Boolean-sounding fields ("isActive", "hasPaid", "enabled", "verified").
+  if (/^(is|has|can|should)[A-Z_]/.test(field) || /(?:^|_)(active|enabled|verified|paid|deleted|published|archived)(?:$|_)/.test(f)) {
+    return { type: 'boolean' };
+  }
+  // Format-y string fields.
+  if (/(?:^|_)email(?:$|_)/.test(f))                 return { type: 'string', format: 'email' };
+  if (/(?:^|_)(url|uri|link|website)(?:$|_)/.test(f)) return { type: 'string', format: 'uri' };
+  if (/(?:^|_)(date|at|time|timestamp)(?:$|_)/.test(f) || /(?:created|updated|deleted)/.test(f)) {
+    return { type: 'string', format: 'date-time' };
+  }
+  if (/(?:^|_)(id|uuid)(?:$|_)/.test(f))             return { type: 'string', format: 'uuid' };
+  return null;
+}
+
+/**
  * localSchemaRefine — deterministic, regex-based editor for common structural
  * commands. Used as a fallback when the Gemini call is rate-limited (429) or
  * otherwise unavailable, so iterative editing keeps working offline.
@@ -598,15 +627,42 @@ function localSchemaRefine(schema, endpoints, instruction) {
   // Resolve a captured Model name to the real schema key, case-insensitively
   // and tolerant of plural/singular ("product"/"products" → "Product"). This is
   // the key hardening: the captured word rarely matches the stored key's casing.
+  // Build the set of plausible singular/plural forms for a lowercased word so a
+  // hint and a schema key match if ANY of their forms coincide. This tolerates
+  // "-s", "-es", and "-ies" plurals WITHOUT the naive "chop trailing s" bug
+  // (which mangled words like "address"/"addresses" and "status").
+  //   product  → {product, products}
+  //   products → {products, product}
+  //   address  → {address, addresses}
+  //   boxes    → {boxes, box}
+  //   category → {category, categories}
+  const wordForms = (raw) => {
+    const w = String(raw ?? '').toLowerCase();
+    if (!w) return new Set();
+    const forms = new Set([w]);
+    // Singularise
+    if (w.endsWith('ies') && w.length > 3) forms.add(w.slice(0, -3) + 'y'); // categories → category
+    if (w.endsWith('es')  && w.length > 3) forms.add(w.slice(0, -2));       // boxes → box, addresses → address
+    if (w.endsWith('s')   && w.length > 2) forms.add(w.slice(0, -1));       // products → product
+    // Pluralise
+    if (w.endsWith('y') && w.length > 1) forms.add(w.slice(0, -1) + 'ies'); // category → categories
+    if (/(?:s|x|z|ch|sh)$/.test(w))       forms.add(w + 'es');              // box → boxes, address → addresses
+    forms.add(w + 's');                                                      // product → products
+    return forms;
+  };
   const matchModelKey = (hint) => {
     if (!hint) return null;
     const keys = Object.keys(next);
-    const h = hint.toLowerCase().replace(/s$/, '');   // normalise, drop trailing plural
-    return (
-      keys.find((k) => k.toLowerCase() === hint.toLowerCase()) ||       // exact (case-insensitive)
-      keys.find((k) => k.toLowerCase().replace(/s$/, '') === h) ||      // singular/plural
-      null
-    );
+    // Exact case-insensitive match wins first.
+    const exact = keys.find((k) => k.toLowerCase() === hint.toLowerCase());
+    if (exact) return exact;
+    // Otherwise match on overlapping singular/plural forms.
+    const hintForms = wordForms(hint);
+    return keys.find((k) => {
+      const kForms = wordForms(k);
+      for (const f of hintForms) if (kForms.has(f)) return true;
+      return false;
+    }) ?? null;
   };
   // When no model is named, fall back to the sole resource (unambiguous) or,
   // failing that, scan the raw instruction for any known resource name.
@@ -616,7 +672,16 @@ function localSchemaRefine(schema, endpoints, instruction) {
     // Escape regex metacharacters in the key before building the probe pattern
     // so a resource name containing e.g. '.' or '(' can never throw here.
     const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    return keys.find((k) => new RegExp(`\\b${escapeRe(k.toLowerCase())}s?\\b`).test(raw.toLowerCase())) ?? null;
+    // Match the key OR any of its plural forms as a whole word anywhere in the
+    // raw instruction. Using wordForms keeps this consistent with matchModelKey
+    // (covers "-s", "-es", "-ies") and avoids the naive-suffix false negatives.
+    const rawLower = raw.toLowerCase();
+    return keys.find((k) => {
+      for (const f of wordForms(k)) {
+        if (new RegExp(`\\b${escapeRe(f)}\\b`).test(rawLower)) return true;
+      }
+      return false;
+    }) ?? null;
   };
 
   // ── ADD field ──────────────────────────────────────────────────────────────
@@ -629,16 +694,21 @@ function localSchemaRefine(schema, endpoints, instruction) {
     m = raw.match(/\badd\s+(?:a|an\s+)?(?:the\s+)?["'`]?(\w+)["'`]?\s*(?:field|property|attribute|column)?\s*(?:(?:as|of\s+type|type|:)\s*["'`]?([a-zA-Z]+)["'`]?)?\s*(?:to|on|in|into)\s+["'`]?(\w+)["'`]?/i);
   }
   if (m) {
-    const field    = m[1];
-    const typeWord = (m[2] || 'string').toLowerCase();
-    const model    = matchModelKey(m[3]);
+    const field       = m[1];
+    const explicitType = m[2] ? m[2].toLowerCase() : null;
+    const model       = matchModelKey(m[3]);
     if (!model) return null;   // couldn't map the Model → caller asks to rephrase
 
-    // Direct structural injection into the active schema, per spec: number stays
-    // a number, everything else defaults to string. specForTypeWord adds richer
-    // types/formats (integer, boolean, email, date…) when recognised.
-    const spec = specForTypeWord(typeWord)
-      ?? { type: typeWord === 'number' ? 'number' : 'string' };
+    // Type resolution order:
+    //   1. Explicit type word if the user gave one ("as number", "type: email").
+    //   2. Best-effort inference from the FIELD NAME ("discount" → number,
+    //      "isActive" → boolean, "email" → string/email) when no type was given.
+    //   3. Plain string default — never a validation failure.
+    const spec =
+      (explicitType && specForTypeWord(explicitType)) ||
+      (explicitType ? { type: explicitType === 'number' ? 'number' : 'string' } : null) ||
+      inferSpecFromFieldName(field) ||
+      { type: 'string' };
     const props = ensureProps(model);
     props[field] = { ...spec, description: 'Custom appended field' };
 
