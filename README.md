@@ -226,7 +226,7 @@ npm run dev
 |---|---|
 | GitHub | Source repository |
 | Vercel | Frontend deployment |
-| Render | Backend deployment |
+| Vercel | Backend deployment |
 
 **Environment variables:**
 

@@ -842,6 +842,85 @@ function registerEditResult(sessionId, { apiName, description, schema, endpoints
   };
 }
 
+/**
+ * secondaryEdit — gated, provider-agnostic secondary LLM failover for schema
+ * editing. Sits between the primary Gemini call and the offline local refiner.
+ *
+ * Talks to any OpenAI-compatible Chat Completions endpoint (Mistral, Groq,
+ * Together, OpenAI, a local proxy, …) via native fetch — NO third-party SDK.
+ * Driven entirely by environment variables:
+ *   • LLM_FALLBACK_URL   — full chat-completions URL
+ *                          (e.g. https://api.mistral.ai/v1/chat/completions)
+ *   • LLM_FALLBACK_KEY   — bearer API key
+ *   • LLM_FALLBACK_MODEL — model id (e.g. "mistral-small-latest")
+ *
+ * SAFE NO-OP: if ANY of the three vars is missing, returns null immediately so
+ * the caller hands off to the local refiner — zero behaviour change until the
+ * operator opts in by configuring the environment. Never throws into the caller;
+ * every failure (network, non-2xx, bad JSON, empty) resolves to null.
+ *
+ * @param {string} editPrompt — the fully-composed edit prompt (system + context
+ *                              + instruction), identical to the Gemini prompt.
+ * @returns {Promise<object|null>} parsed JSON edit result, or null on no-op/fail.
+ */
+async function secondaryEdit(editPrompt) {
+  const url   = process.env.LLM_FALLBACK_URL;
+  const key   = process.env.LLM_FALLBACK_KEY;
+  const model = process.env.LLM_FALLBACK_MODEL;
+
+  // Gate: all three required. Missing any → clean no-op (→ local refiner).
+  if (!url || !key || !model) return null;
+
+  // Bound the request so a hung provider can't stall the edit indefinitely.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15000);
+
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type':  'application/json',
+        'Authorization': `Bearer ${key}`,
+      },
+      body: JSON.stringify({
+        model,
+        // OpenAI-compatible messages array. The system prompt is the same one
+        // that drives the primary path, so the mapping contract is identical.
+        messages: [
+          { role: 'system', content: EDIT_SYSTEM_PROMPT },
+          { role: 'user',   content: editPrompt },
+        ],
+        temperature: 0.3,
+        // Ask for a raw JSON object where the provider supports it. Providers
+        // that ignore this still return JSON text, which safeParseJSON handles.
+        response_format: { type: 'json_object' },
+      }),
+      signal: controller.signal,
+    });
+
+    if (!res.ok) {
+      console.warn(`[secondaryEdit] fallback provider returned HTTP ${res.status}.`);
+      return null;
+    }
+
+    const data = await res.json();
+    // OpenAI-compatible shape: choices[0].message.content holds the JSON text.
+    const content = data?.choices?.[0]?.message?.content;
+    if (!content || typeof content !== 'string') {
+      console.warn('[secondaryEdit] fallback provider returned no content.');
+      return null;
+    }
+
+    return safeParseJSON(content);
+  } catch (err) {
+    // AbortError (timeout), network failure, or JSON parse error → no-op.
+    console.warn(`[secondaryEdit] fallback provider failed: ${err?.message ?? err}`);
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Public API
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1056,10 +1135,38 @@ USER_INSTRUCTION: ${instruction}`;
       });
       parsed = safeParseJSON(result.response.text());
     } catch (err) {
-      // AI call failed (429 quota, network, parse, etc.). Instead of failing,
-      // attempt the deterministic local refiner so editing survives the outage.
+      // Primary (Gemini) failed: 429 quota, network, parse, etc.
       const raw = err?.message ?? '';
-      console.warn(`[editSchema] AI unavailable (${raw.slice(0, 120)}) — attempting local refiner.`);
+
+      // ── Tier 2: secondary LLM failover (gated on env vars) ───────────────
+      // Try a provider-agnostic OpenAI-compatible endpoint before dropping to
+      // the offline refiner. secondaryEdit() is a clean no-op (returns null)
+      // when LLM_FALLBACK_* is unconfigured, so this changes nothing until the
+      // operator opts in. Never throws — a null just falls through to local.
+      console.warn(`[editSchema] Gemini unavailable (${raw.slice(0, 120)}) — trying secondary LLM.`);
+      const secondary = await secondaryEdit(editPrompt);
+      if (
+        secondary &&
+        secondary.ok !== false && !secondary.error &&
+        secondary.schema && typeof secondary.schema === 'object' &&
+        Array.isArray(secondary.endpoints) && secondary.endpoints.length > 0
+      ) {
+        console.info('[editSchema] secondary LLM failover applied the edit.');
+        return registerEditResult(sessionId, {
+          apiName:     secondary.apiName     ?? meta?.apiName     ?? 'Mock API',
+          description: secondary.description ?? meta?.description ?? '',
+          schema:      secondary.schema,
+          endpoints:   secondary.endpoints,
+          changeSummary: typeof secondary.changeSummary === 'string' && secondary.changeSummary.trim()
+            ? secondary.changeSummary.trim()
+            : 'Schema updated (secondary AI).',
+          affectedEndpoints: secondary.affectedEndpoints,
+          source:      'ai-fallback',
+        });
+      }
+
+      // ── Tier 3: deterministic offline local refiner ──────────────────────
+      console.warn('[editSchema] secondary LLM unavailable/unusable — attempting local refiner.');
       return tryLocalFallback(raw);
     }
 
